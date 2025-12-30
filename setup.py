@@ -2,6 +2,18 @@ import os
 from glob import glob
 from setuptools import setup
 
+"""
+ROS2 setup file for the ros2_icm20948 package.
+
+Note: code from the following SparkFun packages is directly included in this package:
+
+- https://pypi.org/project/sparkfun-qwiic-icm20948/#files
+- https://pypi.org/project/sparkfun-qwiic-i2c/#files      (https://qwiic-i2c-py.readthedocs.io/en/latest/)
+
+All credits and copyrights belong to SparkFun Electronics for these packages.
+
+"""
+
 package_name = "ros2_icm20948"
 
 setup(
@@ -15,8 +27,7 @@ setup(
         (os.path.join("share", package_name), glob("launch/*launch.[pxy][yma]*")),
     ],
     install_requires=[
-        "setuptools",
-        "sparkfun-qwiic-icm20948",
+        "setuptools"
     ],
     zip_safe=True,
     maintainer="Simon-Pierre Deschênes",

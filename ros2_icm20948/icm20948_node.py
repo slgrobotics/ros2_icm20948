@@ -1,10 +1,10 @@
 import math
 
-import qwiic_icm20948
 import rclpy
 import sensor_msgs.msg
 from rclpy.node import Node
 
+from . import qwiic_icm20948
 
 class ICM20948Node(Node):
     def __init__(self):
