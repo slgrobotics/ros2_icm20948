@@ -19,7 +19,7 @@ class ICM20948Node(Node):
         self.declare_parameter("i2c_address", 0x68)
         i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.i2c_addr = i2c_addr
-        self.get_logger().info("   i2c_addr: {}".format(self.i2c_addr))
+        self.get_logger().info("   i2c_addr: {:X}".format(self.i2c_addr))
 
 
         self.declare_parameter("frame_id", "imu_icm20948")
