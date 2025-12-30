@@ -13,18 +13,24 @@ class ICM20948Node(Node):
         # Logger
         self.logger = self.get_logger()
 
+        self.get_logger().info("IP: ICM20948 IMU Sensor node has been started")
+
         # Parameters
-        self.declare_parameter("i2c_address", 0x69)
+        self.declare_parameter("i2c_address", 0x68)
         i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.i2c_addr = i2c_addr
+        self.get_logger().info("   i2c_addr: {}".format(self.i2c_addr))
+
 
         self.declare_parameter("frame_id", "imu_icm20948")
         frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
         self.frame_id = frame_id
+        self.get_logger().info("   frame_id: {}".format(self.frame_id))
 
         self.declare_parameter("pub_rate", 50)
         pub_rate = self.get_parameter("pub_rate").get_parameter_value().integer_value
         self.pub_rate = pub_rate
+        self.get_logger().info("   pub_rate: {}".format(self.pub_rate))
 
         # IMU instance
         self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)
@@ -43,6 +49,8 @@ class ICM20948Node(Node):
         )
         self.pub_clk_ = self.create_timer(1 / self.pub_rate, self.publish_cback)
 
+        self.get_logger().info("OK: ICM20948Node: init successful");
+
     def publish_cback(self):
         imu_msg = sensor_msgs.msg.Imu()
         mag_msg = sensor_msgs.msg.MagneticField()
@@ -50,7 +58,7 @@ class ICM20948Node(Node):
             try:
                 self.imu.getAgmt()
             except Exception as e:
-                self.logger.info(str(e))
+                self.logger.error(str(e))
 
             imu_msg.header.stamp = self.get_clock().now().to_msg()
             imu_msg.header.frame_id = self.frame_id
