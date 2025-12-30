@@ -8,9 +8,14 @@ Driver for the ICM-20948 IMU
 
 All credits and copyrights belong to SparkFun Electronics for these packages.
 
+All credits and copyrights for the ros2_icm20948 driver belong to:
+ - https://github.com/norlab-ulaval
+ - https://github.com/JadenG13
+ - https://github.com/GAVLab
+
 ## Dependencies
 ```bash
-pip3 install sparkfun-qwiic-icm20948
+sudo apt install python3-smbus2
 ```
 
 ## Permissions
