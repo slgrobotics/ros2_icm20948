@@ -43,21 +43,6 @@ qwiic_i2c
 A package to abstract the interface to the platform specific I2C bus calls. 
 This package is part of the python package for SparkFun qwiic ecosystem. 
 
-New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.sparkfun.com/qwiic).
-
-:example:
-
-	>>> import qwiic_i2c
-	>>> connectedDevices = i2cDriver.scan()
-	>>> if myDeviceAddress in connectedDevices:
-		with qwiic_i2c.getI2CDriver() as i2c:
-			i2c.writeByte(myDeviceAddress, register, 0x3F)
-
-:example:
-	>>> import qwiic_i2c
-	>>> if qwiic_i2c.isDeviceConnected(myDeviceAddress):
-		with qwiic_i2c.getI2CDriver() as i2c:
-			i2c.writeByte(myDeviceAddress, register, 0x3F)
 """
 # Package to abstract the interace to the execution platforms I2C bus for QWIIC.
 #
@@ -105,7 +90,7 @@ def getI2CDriver(*args, **argk):
 
 		:example:
 
-		>>> import qwiic_i2c
+		>>> from ros2_icm20948 import qwiic_i2c
 		>>> i2cDriver = qwiic_i2c.getI2CDriver()
 		>>> myData = i2cDriver.readByte(0x73, 0x34)
 	"""
@@ -142,7 +127,7 @@ def get_i2c_driver(*args, **argk):
 
 		:example:
 
-		>>> import qwiic_i2c
+		>>> from ros2_icm20948 import qwiic_i2c
 		>>> i2cDriver = qwiic_i2c.get_i2c_driver()
 		>>> myData = i2cDriver.readByte(0x73, 0x34)
 	"""

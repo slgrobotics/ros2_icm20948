@@ -12,6 +12,8 @@ Note: code from the following SparkFun packages is directly included in this pac
 
 All credits and copyrights belong to SparkFun Electronics for these packages.
 
+See https://chatgpt.com/s/t_69543e3e38dc8191a2ba8f6d0fec1126
+
 """
 
 package_name = "ros2_icm20948"
@@ -27,7 +29,8 @@ setup(
         (os.path.join("share", package_name), glob("launch/*launch.[pxy][yma]*")),
     ],
     install_requires=[
-        "setuptools"
+        "setuptools",
+        "smbus2",
     ],
     zip_safe=True,
     maintainer="Simon-Pierre Deschênes",
