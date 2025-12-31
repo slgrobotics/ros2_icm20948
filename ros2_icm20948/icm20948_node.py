@@ -19,18 +19,19 @@ class ICM20948Node(Node):
         self.declare_parameter("i2c_address", 0x68)
         i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.i2c_addr = i2c_addr
-        self.get_logger().info("   i2c_addr: 0x{:X}".format(self.i2c_addr))
+        self.get_logger().info(f"   i2c_addr: 0x{self.i2c_addr:X}")
 
+        # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py 
 
         self.declare_parameter("frame_id", "imu_icm20948")
         frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
         self.frame_id = frame_id
-        self.get_logger().info("   frame_id: {}".format(self.frame_id))
+        self.get_logger().info(f"   frame_id: {self.frame_id}")
 
         self.declare_parameter("pub_rate", 50)
         pub_rate = self.get_parameter("pub_rate").get_parameter_value().integer_value
         self.pub_rate = pub_rate
-        self.get_logger().info("   pub_rate: {}".format(self.pub_rate))
+        self.get_logger().info(f"   pub_rate: {self.pub_rate} Hz")
 
         # IMU instance
         self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)

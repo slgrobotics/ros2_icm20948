@@ -111,9 +111,11 @@ def getI2CDriver(*args, **argk):
 				_default_driver = driver
 			
 			# And return it
+			print(f"OK: found an I2C driver for {driverClass} platform")
 			return driver
 	
 	# If we get here, we didn't find a driver for this platform
+	print("Error: Unable to find an I2C driver for this platform")
 	return None
 
 def get_i2c_driver(*args, **argk):
