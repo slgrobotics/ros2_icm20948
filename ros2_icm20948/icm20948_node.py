@@ -171,7 +171,8 @@ class ICM20948Node(Node):
             imu_msg.linear_acceleration_covariance[4] = 0.10
             imu_msg.linear_acceleration_covariance[8] = 0.10
 
-            temp_msg.temerature = self.imu.tmpRaw / 100.0
+            temp_msg.temperature = self.imu.tmpRaw / 100.0
+            temp_msg.variance = 0.0 # 0 means unknown
 
         else:
             # If no new data, keep publishing timestamps but mark orientation unknown
