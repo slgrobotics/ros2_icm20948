@@ -3,6 +3,9 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch import LaunchDescription
 
+#
+# See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/ICM20948%20IMU.md
+#
 
 def generate_launch_description():
 
@@ -18,6 +21,8 @@ def generate_launch_description():
                 name="icm20948_node",
                 parameters=[
                     # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
+                    # SparkFun address is likely 0x69, generic GY-ICM20948 - 0x68
+                    # Use "i2cdetect -y 1"
                     {"i2c_address": 0x68},
                     {"frame_id": "imu_link"},
                     {"pub_rate": pub_rate},
