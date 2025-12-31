@@ -17,11 +17,12 @@ def generate_launch_description():
                 executable="icm20948_node",
                 name="icm20948_node",
                 parameters=[
+                    # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
                     {"i2c_address": 0x68},
-                    {"frame_id": "imu_icm20948"},
+                    {"frame_id": "imu_link"},
                     {"pub_rate": pub_rate},
                     {"madgwick_beta": 0.08},
-                    {"use_mag": True}
+                    {"madgwick_use_mag": True}
                 ],
             )
         ]

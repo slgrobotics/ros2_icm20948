@@ -59,10 +59,13 @@ class ICM20948Node(Node):
 
         # Madgwick params
         self.declare_parameter("madgwick_beta", 0.08)   # 0.04-0.2 typical
-        self.declare_parameter("use_mag", True)
-        self.beta = float(self.get_parameter("madgwick_beta").value)
-        self.use_mag = bool(self.get_parameter("use_mag").value)
-        self.filter = MadgwickAHRS(beta=self.beta)
+        self.declare_parameter("madgwick_use_mag", True)
+        self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
+        self.madgwick_use_mag = bool(self.get_parameter("madgwick_use_mag").value)
+        self.filter = MadgwickAHRS(beta=self.madgwick_beta)
+
+        self.get_logger().info(f"   madgwick_beta: {self.madgwick_beta}")
+        self.get_logger().info(f"   frame_id: {self.frame_id}")
 
         self._last_stamp = None
         self._shutting_down = False
@@ -188,7 +191,7 @@ class ICM20948Node(Node):
                 mag_msg.magnetic_field.z = mz
 
                 # ---- Run Madgwick to compute orientation ----
-                if self.use_mag:
+                if self.madgwick_use_mag:
                     self.filter.update(gx, gy, gz, ax, ay, az, mx, my, mz, dt=dt)
                 else:
                     self.filter.update(gx, gy, gz, ax, ay, az, dt=dt)
