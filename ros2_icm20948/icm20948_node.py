@@ -52,6 +52,7 @@ class ICM20948Node(Node):
         self.imu_raw_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data_raw", 10)
         self.imu_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data", 10)
         self.mag_pub = self.create_publisher(sensor_msgs.msg.MagneticField, "/imu/mag_raw", 10)
+        self.temp_pub = self.create_publisher(sensor_msgs.msg.Temperature, "/imu/temp", 10)
 
         self.pub_clk = self.create_timer(1.0 / float(self.pub_rate), self.publish_cback)
 
@@ -108,7 +109,7 @@ class ICM20948Node(Node):
                 self.imu_raw_pub.publish(imu_raw_msg)
                 self.imu_pub.publish(imu_msg)
                 self.mag_pub.publish(mag_msg)
-                self.temp_pub_.publish(temp_msg)
+                self.temp_pub.publish(temp_msg)
                 return
 
             # ---- Convert raw -> SI units (you already do this) ----
@@ -182,7 +183,7 @@ class ICM20948Node(Node):
         self.imu_raw_pub.publish(imu_raw_msg)
         self.imu_pub.publish(imu_msg)
         self.mag_pub.publish(mag_msg)
-        self.temp_pub_.publish(temp_msg)
+        self.temp_pub.publish(temp_msg)
 
 def main(args=None):
     rclpy.init(args=args)
