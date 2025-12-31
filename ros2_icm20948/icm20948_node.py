@@ -67,11 +67,6 @@ class ICM20948Node(Node):
         self._last_stamp = None
         self._shutting_down = False
 
-        self.get_logger().info(
-            f"   accel_fsr={self.accel_fsr} mul={self._accel_mul:.6g} m/s^2 per LSB, "
-            f"gyro_fsr={self.gyro_fsr} mul={self._gyro_mul:.6g} rad/s per LSB"
-        )
-
         # IMU instance
         self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)
         if not self.imu.connected:
@@ -88,6 +83,11 @@ class ICM20948Node(Node):
 
         self._accel_mul = accel_raw_to_mps2(self.accel_fsr)
         self._gyro_mul  = gyro_raw_to_rads(self.gyro_fsr)
+
+        self.get_logger().info(
+            f"   accel_fsr={self.accel_fsr} mul={self._accel_mul:.6g} m/s^2 per LSB, "
+            f"gyro_fsr={self.gyro_fsr} mul={self._gyro_mul:.6g} rad/s per LSB"
+        )
 
         # Publishers
         self.imu_raw_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data_raw", 10)
