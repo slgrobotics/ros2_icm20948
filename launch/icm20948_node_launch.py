@@ -20,6 +20,8 @@ def generate_launch_description():
                     {"i2c_address": 0x68},
                     {"frame_id": "imu_icm20948"},
                     {"pub_rate": pub_rate},
+                    {"madgwick_beta": 0.08},
+                    {"use_mag": True}
                 ],
             )
         ]
