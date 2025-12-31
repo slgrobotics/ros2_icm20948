@@ -15,7 +15,7 @@ sudo adduser <your_user> i2c
 
 ## Credits
 
-**Note:** code from the following SparkFun packages is directly included in this package:
+**Note:** code from the following SparkFun packages are directly included in this package:
 
 - https://pypi.org/project/sparkfun-qwiic-icm20948/#files
 - https://pypi.org/project/sparkfun-qwiic-i2c/#files      (https://qwiic-i2c-py.readthedocs.io/en/latest/)
