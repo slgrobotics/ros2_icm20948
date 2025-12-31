@@ -67,16 +67,6 @@ class ICM20948Node(Node):
         self._last_stamp = None
         self._shutting_down = False
 
-        # choose FSRs, configure the device, and precompute multipliers once:
-        self.accel_fsr = qwiic_icm20948.gpm16
-        self.gyro_fsr  = qwiic_icm20948.dps2000
-
-        self.imu.setFullScaleRangeGyro(self.gyro_fsr)
-        self.imu.setFullScaleRangeAccel(self.accel_fsr)
-
-        self._accel_mul = accel_raw_to_mps2(self.accel_fsr)
-        self._gyro_mul  = gyro_raw_to_rads(self.gyro_fsr)
-
         self.get_logger().info(
             f"   accel_fsr={self.accel_fsr} mul={self._accel_mul:.6g} m/s^2 per LSB, "
             f"gyro_fsr={self.gyro_fsr} mul={self._gyro_mul:.6g} rad/s per LSB"
@@ -87,9 +77,17 @@ class ICM20948Node(Node):
         if not self.imu.connected:
             self.logger.error("ICM20948 not connected. Check wiring / I2C bus / address.")
         self.imu.begin()
-        # the library’s begin() sets accel+gyro to defaults (gpm2, dps250). We override them here:
-        self.imu.setFullScaleRangeAccel(qwiic_icm20948.gpm16)
-        self.imu.setFullScaleRangeGyro(qwiic_icm20948.dps2000)
+
+        # the library’s begin() sets accel+gyro to defaults (gpm2, dps250). We override them here.
+        # choose FSRs, configure the device, and precompute multipliers once:
+        self.accel_fsr = qwiic_icm20948.gpm16
+        self.gyro_fsr  = qwiic_icm20948.dps2000
+
+        self.imu.setFullScaleRangeAccel(self.accel_fsr)
+        self.imu.setFullScaleRangeGyro(self.gyro_fsr)
+
+        self._accel_mul = accel_raw_to_mps2(self.accel_fsr)
+        self._gyro_mul  = gyro_raw_to_rads(self.gyro_fsr)
 
         # Publishers
         self.imu_raw_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data_raw", 10)

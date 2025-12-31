@@ -91,23 +91,24 @@ class MadgwickAHRS:
 
     def _grad_imu(self, qw, qx, qy, qz, ax, ay, az):
         # Objective function and Jacobian for IMU-only
-        _2qw = 2.0*qw
-        _2qx = 2.0*qx
-        _2qy = 2.0*qy
-        _2qz = 2.0*qz
-        _4qx = 4.0*qx
-        _4qy = 4.0*qy
-        _8qx = 8.0*qx
-        _8qy = 8.0*qy
-        qwqw = qw*qw
-        qxqx = qx*qx
-        qyqy = qy*qy
-        qzqz = qz*qz
+        _2qw = 2.0 * qw
+        _2qx = 2.0 * qx
+        _2qy = 2.0 * qy
+        _2qz = 2.0 * qz
+        _4qw = 4.0 * qw
+        _4qx = 4.0 * qx
+        _4qy = 4.0 * qy
+        _8qx = 8.0 * qx
+        _8qy = 8.0 * qy
+        qwqw = qw * qw
+        qxqx = qx * qx
+        qyqy = qy * qy
+        qzqz = qz * qz
 
-        s1 = _4qw*qyqy + _2qy*ax + _4qw*qxqx - _2qx*ay
-        s2 = _4qx*qzqz - _2qz*ax + 4.0*qwqw*qx - _2qw*ay - _4qx + _8qx*qxqx + _8qx*qyqy + _4qx*az
-        s3 = 4.0*qwqw*qy + _2qw*ax + _4qy*qzqz - _2qz*ay - _4qy + _8qy*qxqx + _8qy*qyqy + _4qy*az
-        s4 = 4.0*qxqx*qz - _2qx*ax + 4.0*qyqy*qz - _2qy*ay
+        s1 = _4qw * qyqy + _2qy * ax + _4qw * qxqx - _2qx * ay
+        s2 = _4qx * qzqz - _2qz * ax + 4.0 * qwqw * qx - _2qw * ay - _4qx + _8qx * qxqx + _8qx * qyqy + _4qx * az
+        s3 = 4.0 * qwqw * qy + _2qw * ax + _4qy * qzqz - _2qz * ay - _4qy + _8qy * qxqx + _8qy * qyqy + _4qy * az
+        s4 = 4.0 * qxqx * qz - _2qx * ax + 4.0 * qyqy * qz - _2qy * ay
         return s1, s2, s3, s4
 
     def _grad_imu_mag(self, qw, qx, qy, qz, ax, ay, az, mx, my, mz):
