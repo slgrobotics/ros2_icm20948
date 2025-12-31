@@ -65,7 +65,7 @@ class ICM20948Node(Node):
         self.filter = MadgwickAHRS(beta=self.madgwick_beta)
 
         self.get_logger().info(f"   madgwick_beta: {self.madgwick_beta}")
-        self.get_logger().info(f"   frame_id: {self.frame_id}")
+        self.get_logger().info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
 
         self._last_stamp = None
         self._shutting_down = False
