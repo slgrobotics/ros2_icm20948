@@ -27,7 +27,9 @@ def generate_launch_description():
                     {"frame_id": "imu_link"},
                     {"pub_rate": pub_rate},
                     {"madgwick_beta": 0.08},
-                    {"madgwick_use_mag": True}
+                    {"madgwick_use_mag": True},
+                    {"gyro_calib_seconds": 3.0},
+                    {"gyro_calib_max_std_dps": 1.0} # warning threshold - if std dev is high during calibration
                 ],
             )
         ]
