@@ -94,9 +94,11 @@ class ICM20948Node(Node):
         self.imu.begin()
 
         # the library’s begin() sets accel+gyro to defaults (gpm2, dps250). We override them here.
-        # choose FSRs, configure the device, and precompute multipliers once:
-        self.accel_fsr = qwiic_icm20948.gpm16
-        self.gyro_fsr  = qwiic_icm20948.dps2000
+        # choose FSRs, configure the device, and precompute multipliers once.
+        # Practical guidance: https://chatgpt.com/s/t_6956bac992908191894dca63ff53b68d
+        # Accel: ±2g (gpm2) Gyro: ±250 dps (dps250) for wheeled home robot, most sensitive to movement.
+        self.accel_fsr = qwiic_icm20948.gpm2
+        self.gyro_fsr  = qwiic_icm20948.dps250
 
         self.imu.setFullScaleRangeAccel(self.accel_fsr)
         self.imu.setFullScaleRangeGyro(self.gyro_fsr)
