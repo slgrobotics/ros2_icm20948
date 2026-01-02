@@ -298,6 +298,9 @@ class ICM20948Node(Node):
                 imu_msg.linear_acceleration_covariance[4] = 0.10
                 imu_msg.linear_acceleration_covariance[8] = 0.10
 
+                imu_raw_msg.angular_velocity_covariance = imu_msg.angular_velocity_covariance
+                imu_raw_msg.linear_acceleration_covariance = imu_msg.linear_acceleration_covariance
+
                 # Convert temp raw -> Celsius, see datasheet pp.45,14
                 temp_c = self.imu.tmpRaw / 333.87 + 21.0
 
