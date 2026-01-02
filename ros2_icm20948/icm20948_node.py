@@ -42,22 +42,32 @@ class ICM20948Node(Node):
         # Logger
         self.logger = self.get_logger()
 
-        self.get_logger().info("IP: ICM20948 IMU Sensor node has been started")
+        self.logger.info("IP: ICM20948 IMU Sensor node has been started")
 
         # Parameters
         self.declare_parameter("i2c_address", 0x68)
         self.i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
-        self.get_logger().info(f"   i2c_addr: 0x{self.i2c_addr:X}")
+        self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X}")
 
         # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py 
 
         self.declare_parameter("frame_id", "imu_icm20948")
         self.frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
-        self.get_logger().info(f"   frame_id: {self.frame_id}")
+        self.logger.info(f"   frame_id: {self.frame_id}")
 
-        self.declare_parameter("pub_rate", 50)
-        self.pub_rate = self.get_parameter("pub_rate").get_parameter_value().integer_value
-        self.get_logger().info(f"   pub_rate: {self.pub_rate} Hz")
+        self.declare_parameter("pub_rate_hz", 50)
+        self.pub_rate_hz = self.get_parameter("pub_rate_hz").get_parameter_value().integer_value
+        self.logger.info(f"   pub_rate_hz: {self.pub_rate_hz} Hz")
+        
+        self.declare_parameter("temp_pub_rate_hz", 1.0)
+        self.temp_pub_rate_hz = float(self.get_parameter("temp_pub_rate_hz").value)
+        self.logger.info(f"   temp_pub_rate_hz: {self.temp_pub_rate_hz} Hz")
+
+        # Temperature averaging (accumulate at IMU rate, publish averaged at ~temp_pub_rate_hz)
+        self._temp_sum_c = 0.0
+        self._temp_count = 0
+        # Divider: publish temperature every N IMU ticks
+        self._temp_div = max(1, int(round(self.pub_rate_hz / max(0.1, self.temp_pub_rate_hz))))
 
         # Madgwick params
         self.declare_parameter("madgwick_beta", 0.08)   # 0.04-0.2 typical
@@ -66,8 +76,8 @@ class ICM20948Node(Node):
         self.madgwick_use_mag = bool(self.get_parameter("madgwick_use_mag").value)
         self.filter = MadgwickAHRS(beta=self.madgwick_beta)
 
-        self.get_logger().info(f"   madgwick_beta: {self.madgwick_beta}")
-        self.get_logger().info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
+        self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
+        self.logger.info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
 
         # Gyro calibration on startup:
         self.declare_parameter("gyro_calib_seconds", 3.0)
@@ -75,7 +85,7 @@ class ICM20948Node(Node):
         self.gyro_calib_seconds = float(self.get_parameter("gyro_calib_seconds").value)
         self.gyro_calib_max_std_dps = float(self.get_parameter("gyro_calib_max_std_dps").value)
 
-        self.get_logger().info(f"   gyro_calib_seconds: {self.gyro_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}")
+        self.logger.info(f"   gyro_calib_seconds: {self.gyro_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}")
 
         self._gyro_bias = [0.0, 0.0, 0.0]        # rad/s
         self._gyro_bias_ready = False
@@ -93,8 +103,9 @@ class ICM20948Node(Node):
             self.logger.error("ICM20948 not connected. Check wiring / I2C bus / address.")
         self.imu.begin()
 
-        # the library’s begin() sets accel+gyro to defaults (gpm2, dps250). We override them here.
-        # choose FSRs, configure the device, and precompute multipliers once.
+        # Choose FSRs, configure the device, and precompute multipliers once.
+    
+        # the library’s begin() sets accel+gyro to defaults (gpm2, dps250). We may override them here.
         # Practical guidance: https://chatgpt.com/s/t_6956bac992908191894dca63ff53b68d
         # Accel: ±2g (gpm2) Gyro: ±250 dps (dps250) for wheeled home robot, most sensitive to movement.
         self.accel_fsr = qwiic_icm20948.gpm2
@@ -106,7 +117,7 @@ class ICM20948Node(Node):
         self._accel_mul = accel_raw_to_mps2(self.accel_fsr)
         self._gyro_mul  = gyro_raw_to_rads(self.gyro_fsr)
 
-        self.get_logger().info(
+        self.logger.info(
             f"   accel_fsr={self.accel_fsr} mul={self._accel_mul:.6g} m/s^2 per LSB, "
             f"gyro_fsr={self.gyro_fsr} mul={self._gyro_mul:.6g} rad/s per LSB"
         )
@@ -117,9 +128,9 @@ class ICM20948Node(Node):
         self.mag_pub = self.create_publisher(sensor_msgs.msg.MagneticField, "/imu/mag_raw", 10)
         self.temp_pub = self.create_publisher(sensor_msgs.msg.Temperature, "/imu/temp", 10)
 
-        self.pub_clk = self.create_timer(1.0 / float(self.pub_rate), self.publish_cback)
+        self.pub_clk = self.create_timer(1.0 / float(self.pub_rate_hz), self.publish_cback)
 
-        self.get_logger().info("OK: ICM20948 Node: init successful")
+        self.logger.info("OK: ICM20948 Node: init successful")
 
     def publish_cback(self):
 
@@ -140,12 +151,12 @@ class ICM20948Node(Node):
 
             # Compute dt for filter
             if self._last_stamp is None:
-                dt = 1.0 / float(self.pub_rate)
+                dt = 1.0 / float(self.pub_rate_hz)
             else:
                 dt = (now - self._last_stamp).nanoseconds * 1e-9
                 # Clamp dt to sane bounds (prevents huge jumps if system pauses)
                 if dt <= 0.0:
-                    dt = 1.0 / float(self.pub_rate)
+                    dt = 1.0 / float(self.pub_rate_hz)
                 elif dt > 0.2:
                     dt = 0.2
             self._last_stamp = now
@@ -153,7 +164,6 @@ class ICM20948Node(Node):
             imu_raw_msg = sensor_msgs.msg.Imu()
             imu_msg = sensor_msgs.msg.Imu()
             mag_msg = sensor_msgs.msg.MagneticField()
-            temp_msg = sensor_msgs.msg.Temperature()
 
             imu_raw_msg.header.stamp = now.to_msg()
             imu_raw_msg.header.frame_id = self.frame_id
@@ -164,8 +174,13 @@ class ICM20948Node(Node):
             mag_msg.header.stamp = imu_raw_msg.header.stamp
             mag_msg.header.frame_id = self.frame_id
 
-            temp_msg.header.stamp = imu_raw_msg.header.stamp
-            temp_msg.header.frame_id = self.frame_id
+            # If no new data, keep publishing timestamps but mark orientation etc. unknown
+            imu_raw_msg.orientation_covariance[0] = -1.0
+            imu_raw_msg.linear_acceleration_covariance[0] = -1.0
+            imu_raw_msg.angular_velocity_covariance[0] = -1.0
+            imu_msg.orientation_covariance[0] = -1.0
+            imu_msg.linear_acceleration_covariance[0] = -1.0
+            imu_msg.angular_velocity_covariance[0] = -1.0
 
             if self.imu.dataReady():
                 try:
@@ -176,16 +191,15 @@ class ICM20948Node(Node):
                     self.imu_raw_pub.publish(imu_raw_msg)
                     self.imu_pub.publish(imu_msg)
                     self.mag_pub.publish(mag_msg)
-                    self.temp_pub.publish(temp_msg)
                     return
 
                 # ---- Convert raw -> SI units ----
-                # Accel (m/s^2) -- our scaling assumes gpm16 => 2048 LSB/g;
+                # Accel (m/s^2) -- apply our scaling;
                 ax = self.imu.axRaw * self._accel_mul
                 ay = self.imu.ayRaw * self._accel_mul
                 az = self.imu.azRaw * self._accel_mul
 
-                # Gyro (rad/s) -- our scaling assumes dps2000 => 16.4 LSB/(deg/s);
+                # Gyro (rad/s) -- apply our scaling;
                 gx = self.imu.gxRaw * self._gyro_mul
                 gy = self.imu.gyRaw * self._gyro_mul
                 gz = self.imu.gzRaw * self._gyro_mul
@@ -219,13 +233,13 @@ class ICM20948Node(Node):
                         sy = std_rad(self._gyro_sum[1], self._gyro_sumsq[1]) * 180.0 / math.pi
                         sz = std_rad(self._gyro_sum[2], self._gyro_sumsq[2]) * 180.0 / math.pi
 
-                        self.get_logger().info(
+                        self.logger.info(
                             f"Gyro bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
                             f"bias=[{bx:.6g}, {by:.6g}, {bz:.6g}] rad/s,  std dev=[{sx:.2f}, {sy:.2f}, {sz:.2f}] deg/s"
                         )
 
                         if max(sx, sy, sz) > self.gyro_calib_max_std_dps:
-                            self.get_logger().warn(
+                            self.logger.warn(
                                 "Gyro calibration std dev is high — robot may have been moving during startup."
                             )
 
@@ -235,7 +249,7 @@ class ICM20948Node(Node):
                     gy -= self._gyro_bias[1]
                     gz -= self._gyro_bias[2]
 
-                # Mag (Tesla) -- our scaling may need calibration; leave as-is for now
+                # Mag (Tesla) -- our scaling may need calibration; using some approximation for now
                 mx = self.imu.mxRaw * 1e-6 / 0.15
                 my = self.imu.myRaw * 1e-6 / 0.15
                 mz = self.imu.mzRaw * 1e-6 / 0.15
@@ -284,32 +298,43 @@ class ICM20948Node(Node):
                 imu_msg.linear_acceleration_covariance[4] = 0.10
                 imu_msg.linear_acceleration_covariance[8] = 0.10
 
-                temp_msg.temperature = self.imu.tmpRaw / 100.0
-                temp_msg.variance = 0.0 # 0 means unknown
+                # Convert temp raw -> Celsius, see datasheet pp.45,14
+                temp_c = self.imu.tmpRaw / 333.87 + 21.0
 
-            else:
-                # If no new data, keep publishing timestamps but mark orientation unknown
-                imu_raw_msg.orientation_covariance[0] = -1.0
-                imu_msg.orientation_covariance[0] = -1.0
+                # Accumulate temp for averaging
+                self._temp_sum_c += temp_c
+                self._temp_count += 1
+                publish_temp_now = (self._temp_count % self._temp_div) == 0
+
+                if publish_temp_now:
+                    avg_temp_c = self._temp_sum_c / float(self._temp_count)
+                    temp_msg = sensor_msgs.msg.Temperature()
+                    temp_msg.header.stamp = imu_raw_msg.header.stamp
+                    temp_msg.header.frame_id = self.frame_id
+                    temp_msg.temperature = round(avg_temp_c, 2)
+                    temp_msg.variance = 0.0 # 0 means unknown
+                    self.temp_pub.publish(temp_msg)
+                    # Reset accumulator for next window
+                    self._temp_sum_c = 0.0
+                    self._temp_count = 0
 
             self.imu_raw_pub.publish(imu_raw_msg)
             self.imu_pub.publish(imu_msg)
             self.mag_pub.publish(mag_msg)
-            self.temp_pub.publish(temp_msg)
 
         except Exception as e:
             # During shutdown, suppress noise; otherwise log
             if not self._shutting_down:
                 self.logger.error(f"publish_cback exception: {e}")
 
-def destroy_node(self):
-    self._shutting_down = True
-    try:
-        if hasattr(self, "pub_clk_") and self.pub_clk_ is not None:
-            self.pub_clk_.cancel()
-    except Exception:
-        pass
-    return super().destroy_node()
+    def destroy_node(self):
+        self._shutting_down = True
+        try:
+            if hasattr(self, "pub_clk") and self.pub_clk is not None:
+                self.pub_clk.cancel()
+        except Exception:
+            pass
+        return super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
