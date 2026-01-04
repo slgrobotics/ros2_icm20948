@@ -29,8 +29,9 @@ def generate_launch_description():
                     {"temp_pub_rate_hz": 1.0},     # float, default 1.0
                     {"madgwick_beta": 0.08},
                     {"madgwick_use_mag": True},
-                    {"gyro_calib_seconds": 3.0},
-                    {"gyro_calib_max_std_dps": 1.0} # warning threshold - if std dev is too high during calibration
+                    {"startup_calib_seconds": 3.0},
+                    {"gyro_calib_max_std_dps": 1.0},    # warning threshold - if std dev is too high during calibration; default 1.0
+                    {"accel_calib_max_std_mps2": 0.35}  # same for accel; default 0.35
                 ],
             )
         ]

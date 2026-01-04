@@ -79,21 +79,29 @@ class ICM20948Node(Node):
         self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
         self.logger.info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
 
-        # Gyro calibration on startup:
-        self.declare_parameter("gyro_calib_seconds", 3.0)
+        # Gyro and Accel calibration on startup:
+        self.declare_parameter("startup_calib_seconds", 3.0)
+        self.startup_calib_seconds = float(self.get_parameter("startup_calib_seconds").value)
+
         self.declare_parameter("gyro_calib_max_std_dps", 1.0)  # warn if more
-        self.gyro_calib_seconds = float(self.get_parameter("gyro_calib_seconds").value)
         self.gyro_calib_max_std_dps = float(self.get_parameter("gyro_calib_max_std_dps").value)
 
-        self.logger.info(f"   gyro_calib_seconds: {self.gyro_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}")
-
-        self._gyro_bias = [0.0, 0.0, 0.0]        # rad/s
-        self._gyro_bias_ready = False
-        self._gyro_calib_samples = 0
+        self._gyro_bias = [0.0, 0.0, 0.0]      # rad/s
         self._gyro_sum = [0.0, 0.0, 0.0]
         self._gyro_sumsq = [0.0, 0.0, 0.0]
-        self._calib_start_time = self.get_clock().now()
 
+        self.declare_parameter("accel_calib_max_std_mps2", 0.35)  # warn if more
+        self.accel_calib_max_std_mps2 = float(self.get_parameter("accel_calib_max_std_mps2").value)
+
+        self._accel_bias = [0.0, 0.0, 0.0]     # m/s^2
+        self._accel_sum = [0.0, 0.0, 0.0]
+        self._accel_sumsq = [0.0, 0.0, 0.0]
+
+        self.logger.info(f"   startup_calib_seconds: {self.startup_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}  accel_calib_max_std_mps2: {self.accel_calib_max_std_mps2}")
+
+        self._calib_start_time = self.get_clock().now()
+        self._calib_samples = 0
+        self._calibration_done = False
         self._last_stamp = None
         self._shutting_down = False
 
@@ -205,49 +213,92 @@ class ICM20948Node(Node):
                 gz = self.imu.gzRaw * self._gyro_mul
 
                 # ---- Gyro bias calibration phase ----
-                if not self._gyro_bias_ready:
+                if not self._calibration_done:
                     self._gyro_sum[0] += gx
                     self._gyro_sum[1] += gy
                     self._gyro_sum[2] += gz
                     self._gyro_sumsq[0] += gx*gx
                     self._gyro_sumsq[1] += gy*gy
                     self._gyro_sumsq[2] += gz*gz
-                    self._gyro_calib_samples += 1
+
+                    self._accel_sum[0] += ax
+                    self._accel_sum[1] += ay
+                    self._accel_sum[2] += az
+                    self._accel_sumsq[0] += ax*ax
+                    self._accel_sumsq[1] += ay*ay
+                    self._accel_sumsq[2] += az*az
+
+                    self._calib_samples += 1
 
                     elapsed = (self.get_clock().now() - self._calib_start_time).nanoseconds * 1e-9
-                    if elapsed >= self.gyro_calib_seconds and self._gyro_calib_samples > 10:
-                        n = float(self._gyro_calib_samples)
-                        bx = self._gyro_sum[0] / n
-                        by = self._gyro_sum[1] / n
-                        bz = self._gyro_sum[2] / n
-                        self._gyro_bias = [bx, by, bz]
-                        self._gyro_bias_ready = True
+                    if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
+                        self._calibration_done = True
+                        n = float(self._calib_samples)
 
-                        # Std dev check (convert to deg/s for readability)
-                        def std_rad(sum_, sumsq_):
+                        # Gyro calibration calculations:
+                        bgx = self._gyro_sum[0] / n
+                        bgy = self._gyro_sum[1] / n
+                        bgz = self._gyro_sum[2] / n
+                        self._gyro_bias = [bgx, bgy, bgz]
+
+                        # Std dev check (convert to deg/s or  for readability)
+                        def std_dev(sum_, sumsq_):
                             mean = sum_ / n
                             var = max(0.0, (sumsq_ / n) - mean*mean)
                             return math.sqrt(var)
 
-                        sx = std_rad(self._gyro_sum[0], self._gyro_sumsq[0]) * 180.0 / math.pi
-                        sy = std_rad(self._gyro_sum[1], self._gyro_sumsq[1]) * 180.0 / math.pi
-                        sz = std_rad(self._gyro_sum[2], self._gyro_sumsq[2]) * 180.0 / math.pi
+                        g_sx = std_dev(self._gyro_sum[0], self._gyro_sumsq[0]) * 180.0 / math.pi
+                        g_sy = std_dev(self._gyro_sum[1], self._gyro_sumsq[1]) * 180.0 / math.pi
+                        g_sz = std_dev(self._gyro_sum[2], self._gyro_sumsq[2]) * 180.0 / math.pi
 
                         self.logger.info(
                             f"Gyro bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
-                            f"bias=[{bx:.6g}, {by:.6g}, {bz:.6g}] rad/s,  std dev=[{sx:.2f}, {sy:.2f}, {sz:.2f}] deg/s"
+                            f"bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
                         )
 
-                        if max(sx, sy, sz) > self.gyro_calib_max_std_dps:
+                        if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
                             self.logger.warn(
                                 "Gyro calibration std dev is high — robot may have been moving during startup."
                             )
 
-                # Always subtract bias once ready
-                if self._gyro_bias_ready:
+                        # Accel calibration calculations:
+                        axm = self._accel_sum[0] / n
+                        aym = self._accel_sum[1] / n
+                        azm = self._accel_sum[2] / n
+                        self._accel_bias = [bax, bay, baz]
+
+                        # Note: With ENU and “Z up”, at rest you typically want: az ≈ +9.80665 (not -9.8)
+
+                        # Expect stationary accel in ENU frame: [0,0,+G0]
+                        bax = axm - 0.0
+                        bay = aym - 0.0
+                        baz = azm - G0 # Keep gravity. Set "imu0_remove_gravitational_acceleration:true" in robots/.../config/ekf_odom_params.yaml
+
+                        a_sx = std_dev(self._accel_sum[0], self._accel_sumsq[0])
+                        a_sy = std_dev(self._accel_sum[1], self._accel_sumsq[1])
+                        a_sz = std_dev(self._accel_sum[2], self._accel_sumsq[2])
+
+                        self.logger.info(
+                            f"Accel bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
+                            f"bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
+                        )
+
+                        if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
+                            self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
+
+                        self._gyro_sum = [0.0, 0.0, 0.0]
+                        self._accel_sum = [0.0, 0.0, 0.0]
+
+                # Always subtract biases once ready
+                if self._calibration_done:
                     gx -= self._gyro_bias[0]
                     gy -= self._gyro_bias[1]
                     gz -= self._gyro_bias[2]
+
+                    ax -= self._accel_bias[0]
+                    ay -= self._accel_bias[1]
+                    az -= self._accel_bias[2]
+                    # That should yield at rest: ax ≈ 0, ay ≈ 0, az ≈ +G0
 
                 # Mag (Tesla) -- our scaling may need calibration; using some approximation for now
                 mx = self.imu.mxRaw * 1e-6 / 0.15
