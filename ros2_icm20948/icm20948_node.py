@@ -186,6 +186,7 @@ class ICM20948Node(Node):
             imu_raw_msg.orientation_covariance[0] = -1.0
             imu_raw_msg.linear_acceleration_covariance[0] = -1.0
             imu_raw_msg.angular_velocity_covariance[0] = -1.0
+            # covariances for imu_msg will be overwritten when calibration finishes:
             imu_msg.orientation_covariance[0] = -1.0
             imu_msg.linear_acceleration_covariance[0] = -1.0
             imu_msg.angular_velocity_covariance[0] = -1.0
@@ -268,8 +269,8 @@ class ICM20948Node(Node):
                         # Note: With ENU and “Z up”, at rest you typically want: az ≈ +9.80665 (not -9.8)
 
                         # Expect stationary accel in ENU frame: [0,0,+G0]
-                        bax = axm - 0.0
-                        bay = aym - 0.0
+                        bax = axm
+                        bay = aym
                         baz = azm - G0 # Keep gravity. Set "imu0_remove_gravitational_acceleration:true" in robots/.../config/ekf_odom_params.yaml
 
                         self._accel_bias = [bax, bay, baz]
@@ -286,8 +287,12 @@ class ICM20948Node(Node):
                         if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
                             self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
 
+                        # reset calibration variables, in case we later want repeated calibration:
                         self._gyro_sum = [0.0, 0.0, 0.0]
+                        self._gyro_sumsq = [0.0, 0.0, 0.0]
                         self._accel_sum = [0.0, 0.0, 0.0]
+                        self._accel_sumsq = [0.0, 0.0, 0.0]
+                        self._calib_samples = 0
 
                 # Always subtract biases once ready
                 if self._calibration_done:
@@ -341,16 +346,13 @@ class ICM20948Node(Node):
                 imu_msg.orientation_covariance[4] = 0.05
                 imu_msg.orientation_covariance[8] = 0.10
 
-                imu_msg.angular_velocity_covariance[0] = 0.02
-                imu_msg.angular_velocity_covariance[4] = 0.02
-                imu_msg.angular_velocity_covariance[8] = 0.02
-
                 imu_msg.linear_acceleration_covariance[0] = 0.10
                 imu_msg.linear_acceleration_covariance[4] = 0.10
                 imu_msg.linear_acceleration_covariance[8] = 0.10
 
-                imu_raw_msg.angular_velocity_covariance = imu_msg.angular_velocity_covariance
-                imu_raw_msg.linear_acceleration_covariance = imu_msg.linear_acceleration_covariance
+                imu_msg.angular_velocity_covariance[0] = 0.02
+                imu_msg.angular_velocity_covariance[4] = 0.02
+                imu_msg.angular_velocity_covariance[8] = 0.02
 
                 # Convert temp raw -> Celsius, see datasheet pp.45,14
                 temp_c = self.imu.tmpRaw / 333.87 + 21.0
