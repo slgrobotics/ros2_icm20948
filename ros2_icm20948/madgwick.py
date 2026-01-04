@@ -175,3 +175,51 @@ class MadgwickAHRS:
     def quaternion_xyzw(self):
         # ROS uses x,y,z,w
         return (self.qx, self.qy, self.qz, self.qw)
+
+    def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
+        # expects SI accel (m/s^2) and mag (any units), will normalize internally
+        a = self._normalize3(ax, ay, az)
+        if a is None:
+            return False
+        ax, ay, az = a
+
+        # roll/pitch from accel, ENU with z-up (gravity points +z when stationary in your convention)
+        # For a typical IMU reporting +Z up at rest: ax~0,ay~0,az~+1
+        roll  = math.atan2(ay, az)
+        pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
+
+        yaw = 0.0
+        use_mag = (mx is not None and my is not None and mz is not None)
+        if use_mag:
+            m = self._normalize3(mx, my, mz)
+            if m is not None:
+                mx, my, mz = m
+                # tilt-compensate mag
+                cr = math.cos(roll);  sr = math.sin(roll)
+                cp = math.cos(pitch); sp = math.sin(pitch)
+
+                # rotate mag into level frame
+                mx2 = mx*cp + mz*sp
+                my2 = mx*sr*sp + my*cr - mz*sr*cp
+
+                # ENU: yaw=atan2(East, North) depends on your axis conventions.
+                # Common choice: yaw = atan2(mx_level, my_level) or atan2(my_level, mx_level)
+                # If x=East,y=North: heading (yaw) = atan2(E, N) = atan2(mx2, my2)
+                yaw = math.atan2(mx2, my2)
+
+        self._set_quaternion_from_rpy(roll, pitch, yaw)
+        return True
+
+    def _set_quaternion_from_rpy(self, roll, pitch, yaw):
+        cr = math.cos(roll * 0.5);  sr = math.sin(roll * 0.5)
+        cp = math.cos(pitch * 0.5); sp = math.sin(pitch * 0.5)
+        cy = math.cos(yaw * 0.5);   sy = math.sin(yaw * 0.5)
+
+        # yaw (z), pitch (y), roll (x) intrinsic, standard
+        qw = cy*cp*cr + sy*sp*sr
+        qx = cy*cp*sr - sy*sp*cr
+        qy = sy*cp*sr + cy*sp*cr
+        qz = sy*cp*cr - cy*sp*sr
+
+        n = math.sqrt(qw*qw + qx*qx + qy*qy + qz*qz)
+        self.qw, self.qx, self.qy, self.qz = qw/n, qx/n, qy/n, qz/n

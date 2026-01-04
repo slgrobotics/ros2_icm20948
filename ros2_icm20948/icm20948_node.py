@@ -318,6 +318,9 @@ class ICM20948Node(Node):
                             f"Mag   bias=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] Tesla (hard iron calibration)"
                         )
 
+                        if self.madgwick_use_mag:
+                            self.filter.initialize_from_accel_mag(ax, ay, az, mx, my, mz)
+
                         # reset calibration accumulators; we don’t re-run calibration currently:
                         self._gyro_sum = [0.0, 0.0, 0.0]
                         self._gyro_sumsq = [0.0, 0.0, 0.0]
