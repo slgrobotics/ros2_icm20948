@@ -8,13 +8,23 @@ class MadgwickAHRS:
     - mag in Tesla (will be normalized internally)
     Quaternion is ENU body->world if your axes follow REP-103 (x fwd, y left, z up)
     """
-    def __init__(self, beta=0.1):
+    def __init__(self, beta=0.01):
         self.beta = beta
-        # quaternion (w, x, y, z)
+
+        # initial quaternion (w, x, y, z)
         self.qw = 1.0
         self.qx = 0.0
         self.qy = 0.0
         self.qz = 0.0
+
+        # Low-pass accel filter:
+        self._axf = self._ayf = 0.0
+        self._azf = 1.0
+        self._alpha_a = 0.2  # 0..1
+
+        # Low-pass mag filter:
+        self._mxf = self._myf = self._mzf = 0.0
+        self._alpha_m = 0.2  # 0..1
 
     def _normalize3(self, x, y, z):
         n = math.sqrt(x*x + y*y + z*z)
@@ -23,6 +33,13 @@ class MadgwickAHRS:
         return (x/n, y/n, z/n)
 
     def update(self, gx, gy, gz, ax, ay, az, mx=None, my=None, mz=None, dt=0.01):
+
+        # Low-pass accel filter:
+        self._axf = (1-self._alpha_a)*self._axf + self._alpha_a*ax
+        self._ayf = (1-self._alpha_a)*self._ayf + self._alpha_a*ay
+        self._azf = (1-self._alpha_a)*self._azf + self._alpha_a*az
+        ax, ay, az = self._axf, self._ayf, self._azf
+
         # Normalize accelerometer
         a = self._normalize3(ax, ay, az)
         if a is None or dt <= 0.0:
@@ -51,18 +68,32 @@ class MadgwickAHRS:
 
         # Gradient descent correction
         if use_mag:
+            # Low-pass accel filter:
+            self._mxf = (1-self._alpha_m)*self._mxf + self._alpha_m*mx
+            self._myf = (1-self._alpha_m)*self._myf + self._alpha_m*my
+            self._mzf = (1-self._alpha_m)*self._mzf + self._alpha_m*mz
+            mx, my, mz = self._mxf, self._myf, self._mzf
+
             s1, s2, s3, s4 = self._grad_imu_mag(qw, qx, qy, qz, ax, ay, az, mx, my, mz)
         else:
             s1, s2, s3, s4 = self._grad_imu(qw, qx, qy, qz, ax, ay, az)
+
+        # dynamic beta - settling faster when not rotating
+        omega = math.sqrt(gx*gx + gy*gy + gz*gz)  # rad/s
+        # Example thresholds (tune): 0.02 rad/s ≈ 1.15 deg/s
+        if omega < 0.02:
+            beta = self.beta * 0.2  # settling faster
+        else:
+            beta = self.beta
 
         # Normalize step magnitude
         s_norm = math.sqrt(s1*s1 + s2*s2 + s3*s3 + s4*s4)
         if s_norm > 1e-12:
             s1, s2, s3, s4 = s1/s_norm, s2/s_norm, s3/s_norm, s4/s_norm
-            qDot1 -= self.beta * s1
-            qDot2 -= self.beta * s2
-            qDot3 -= self.beta * s3
-            qDot4 -= self.beta * s4
+            qDot1 -= beta * s1
+            qDot2 -= beta * s2
+            qDot3 -= beta * s3
+            qDot4 -= beta * s4
 
         # Integrate to yield quaternion
         qw += qDot1 * dt

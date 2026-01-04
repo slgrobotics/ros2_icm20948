@@ -70,7 +70,7 @@ class ICM20948Node(Node):
         self._temp_div = max(1, int(round(self.pub_rate_hz / max(0.1, self.temp_pub_rate_hz))))
 
         # Madgwick params
-        self.declare_parameter("madgwick_beta", 0.08)   # 0.04-0.2 typical
+        self.declare_parameter("madgwick_beta", 0.01)   # 0.04-0.2 typical, 0.01 for faster settling after rotation 
         self.declare_parameter("madgwick_use_mag", True)
         self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
         self.madgwick_use_mag = bool(self.get_parameter("madgwick_use_mag").value)

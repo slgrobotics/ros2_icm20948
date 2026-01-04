@@ -6,6 +6,8 @@ from launch import LaunchDescription
 #
 # See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/ICM20948%20IMU.md
 #
+# Testing: ros2 launch ros2_icm20948 icm20948_node_launch.py
+#
 
 def generate_launch_description():
 
@@ -25,9 +27,9 @@ def generate_launch_description():
                     # Use "i2cdetect -y 1"
                     {"i2c_address": 0x68},
                     {"frame_id": "imu_link"},
-                    {"pub_rate_hz": pub_rate_hz},  # integer, default 50
+                    {"pub_rate_hz": pub_rate_hz},  # integer, default 50 in code, 200 here
                     {"temp_pub_rate_hz": 1.0},     # float, default 1.0
-                    {"madgwick_beta": 0.08},
+                    {"madgwick_beta": 0.01},       # 0.01 for faster settling after rotation
                     {"madgwick_use_mag": True},
                     {"startup_calib_seconds": 3.0},
                     {"gyro_calib_max_std_dps": 1.0},    # warning threshold - if std dev is too high during calibration; default 1.0
