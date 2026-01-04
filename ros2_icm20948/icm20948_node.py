@@ -99,6 +99,10 @@ class ICM20948Node(Node):
 
         self.logger.info(f"   startup_calib_seconds: {self.startup_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}  accel_calib_max_std_mps2: {self.accel_calib_max_std_mps2}")
 
+        # Mag "hard-iron" calibration accumulators:
+        self._mag_bias = [0.0, 0.0, 0.0]       # Tesla
+        self._mag_sum = [0.0, 0.0, 0.0]
+
         self._calib_start_time = self.get_clock().now()
         self._calib_samples = 0
         self._calibration_done = False
@@ -225,6 +229,12 @@ class ICM20948Node(Node):
                 gy = self.imu.gyRaw * self._gyro_mul
                 gz = self.imu.gzRaw * self._gyro_mul
 
+                # Mag (Tesla)
+                mag_mul = 1e-6 / 0.15  # TODO: fixed scaling may need calibration; using some approximation for now
+                mx = self.imu.mxRaw * mag_mul
+                my = self.imu.myRaw * mag_mul
+                mz = self.imu.mzRaw * mag_mul
+
                 # ---- Gyro and Accel biases calibration phase ----
                 if not self._calibration_done:
                     self._gyro_sum[0] += gx
@@ -241,12 +251,18 @@ class ICM20948Node(Node):
                     self._accel_sumsq[1] += ay*ay
                     self._accel_sumsq[2] += az*az
 
+                    self._mag_sum[0] += mx
+                    self._mag_sum[1] += my
+                    self._mag_sum[2] += mz
+
                     self._calib_samples += 1
 
                     elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
                     if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
                         self._calibration_done = True
                         n = float(self._calib_samples)
+
+                        self.logger.info(f"IMU biases calibrated over {elapsed:.2f}s - ({int(n)} samples): ")
 
                         # Gyro calibration calculations:
                         bgx = self._gyro_sum[0] / n
@@ -259,8 +275,7 @@ class ICM20948Node(Node):
                         g_sz = self.std_dev(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
 
                         self.logger.info(
-                            f"Gyro bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
-                            f"bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
+                            f"Gyro  bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
                         )
 
                         if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
@@ -286,18 +301,29 @@ class ICM20948Node(Node):
                         a_sz = self.std_dev(self._accel_sum[2], self._accel_sumsq[2], n)
 
                         self.logger.info(
-                            f"Accel bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
-                            f"bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
+                            f"Accel bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
                         )
 
                         if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
                             self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
+
+                        # Mag "hard iron" biases:
+                        mxm = self._mag_sum[0] / n
+                        mym = self._mag_sum[1] / n
+                        mzm = self._mag_sum[2] / n
+
+                        self._mag_bias = [mxm, mym, mzm]
+
+                        self.logger.info(
+                            f"Mag   bias=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] Tesla (hard iron calibration)"
+                        )
 
                         # reset calibration accumulators; we don’t re-run calibration currently:
                         self._gyro_sum = [0.0, 0.0, 0.0]
                         self._gyro_sumsq = [0.0, 0.0, 0.0]
                         self._accel_sum = [0.0, 0.0, 0.0]
                         self._accel_sumsq = [0.0, 0.0, 0.0]
+                        self._mag_sum = [0.0, 0.0, 0.0]
                         self._calib_samples = 0
 
                 # Always subtract biases once ready
@@ -311,10 +337,9 @@ class ICM20948Node(Node):
                     az -= self._accel_bias[2]
                     # That should yield at rest: ax ≈ 0, ay ≈ 0, az ≈ +G0
 
-                # Mag (Tesla) -- our scaling may need calibration; using some approximation for now
-                mx = self.imu.mxRaw * 1e-6 / 0.15
-                my = self.imu.myRaw * 1e-6 / 0.15
-                mz = self.imu.mzRaw * 1e-6 / 0.15
+                    mx -= self._mag_bias[0]
+                    my -= self._mag_bias[1]
+                    mz -= self._mag_bias[2]
 
                 # Fill raw message (no orientation)
                 imu_raw_msg.linear_acceleration.x = ax
