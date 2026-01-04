@@ -140,6 +140,18 @@ class ICM20948Node(Node):
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
+    #
+    # Standard deviation calculation:
+    #
+    @staticmethod
+    def std_dev(sum_, sumsq_, n):
+        mean = sum_ / n
+        var = max(0.0, (sumsq_ / n) - mean*mean)
+        return math.sqrt(var)
+
+    #
+    # callback called at pub_rate_hz:
+    #
     def publish_cback(self):
 
         """
@@ -155,23 +167,11 @@ class ICM20948Node(Node):
             return
 
         try:
-            now = self.get_clock().now()
-
-            # Compute dt for filter
-            if self._last_stamp is None:
-                dt = 1.0 / float(self.pub_rate_hz)
-            else:
-                dt = (now - self._last_stamp).nanoseconds * 1e-9
-                # Clamp dt to sane bounds (prevents huge jumps if system pauses)
-                if dt <= 0.0:
-                    dt = 1.0 / float(self.pub_rate_hz)
-                elif dt > 0.2:
-                    dt = 0.2
-            self._last_stamp = now
-
             imu_raw_msg = sensor_msgs.msg.Imu()
             imu_msg = sensor_msgs.msg.Imu()
             mag_msg = sensor_msgs.msg.MagneticField()
+
+            now = self.get_clock().now()
 
             imu_raw_msg.header.stamp = now.to_msg()
             imu_raw_msg.header.frame_id = self.frame_id
@@ -186,7 +186,7 @@ class ICM20948Node(Node):
             imu_raw_msg.orientation_covariance[0] = -1.0
             imu_raw_msg.linear_acceleration_covariance[0] = -1.0
             imu_raw_msg.angular_velocity_covariance[0] = -1.0
-            # covariances for imu_msg will be overwritten when calibration finishes:
+            # covariances for imu_msg will be overwritten when we have fresh data:
             imu_msg.orientation_covariance[0] = -1.0
             imu_msg.linear_acceleration_covariance[0] = -1.0
             imu_msg.angular_velocity_covariance[0] = -1.0
@@ -202,6 +202,18 @@ class ICM20948Node(Node):
                     self.mag_pub.publish(mag_msg)
                     return
 
+                # We have data. Compute dt for filter
+                if self._last_stamp is None:
+                    dt = 1.0 / float(self.pub_rate_hz)
+                else:
+                    dt = (now - self._last_stamp).nanoseconds * 1e-9
+                    # Clamp dt to sane bounds (prevents huge jumps if system pauses)
+                    if dt <= 0.0:
+                        dt = 1.0 / float(self.pub_rate_hz)
+                    elif dt > 0.2:
+                        dt = 0.2
+                self._last_stamp = now
+
                 # ---- Convert raw -> SI units ----
                 # Accel (m/s^2) -- apply our scaling;
                 ax = self.imu.axRaw * self._accel_mul
@@ -213,7 +225,7 @@ class ICM20948Node(Node):
                 gy = self.imu.gyRaw * self._gyro_mul
                 gz = self.imu.gzRaw * self._gyro_mul
 
-                # ---- Gyro bias calibration phase ----
+                # ---- Gyro and Accel biases calibration phase ----
                 if not self._calibration_done:
                     self._gyro_sum[0] += gx
                     self._gyro_sum[1] += gy
@@ -231,7 +243,7 @@ class ICM20948Node(Node):
 
                     self._calib_samples += 1
 
-                    elapsed = (self.get_clock().now() - self._calib_start_time).nanoseconds * 1e-9
+                    elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
                     if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
                         self._calibration_done = True
                         n = float(self._calib_samples)
@@ -242,15 +254,9 @@ class ICM20948Node(Node):
                         bgz = self._gyro_sum[2] / n
                         self._gyro_bias = [bgx, bgy, bgz]
 
-                        # Std dev check (convert to deg/s or  for readability)
-                        def std_dev(sum_, sumsq_):
-                            mean = sum_ / n
-                            var = max(0.0, (sumsq_ / n) - mean*mean)
-                            return math.sqrt(var)
-
-                        g_sx = std_dev(self._gyro_sum[0], self._gyro_sumsq[0]) * 180.0 / math.pi
-                        g_sy = std_dev(self._gyro_sum[1], self._gyro_sumsq[1]) * 180.0 / math.pi
-                        g_sz = std_dev(self._gyro_sum[2], self._gyro_sumsq[2]) * 180.0 / math.pi
+                        g_sx = self.std_dev(self._gyro_sum[0], self._gyro_sumsq[0], n) * 180.0 / math.pi  # convert to deg/s for readability
+                        g_sy = self.std_dev(self._gyro_sum[1], self._gyro_sumsq[1], n) * 180.0 / math.pi
+                        g_sz = self.std_dev(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
 
                         self.logger.info(
                             f"Gyro bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
@@ -262,7 +268,7 @@ class ICM20948Node(Node):
                                 "Gyro calibration std dev is high — robot may have been moving during startup."
                             )
 
-                        # Accel calibration calculations:
+                        # Accel calibration calculations (we assume the robot is level during calibration, Z axis is up)
                         axm = self._accel_sum[0] / n
                         aym = self._accel_sum[1] / n
                         azm = self._accel_sum[2] / n
@@ -271,13 +277,13 @@ class ICM20948Node(Node):
                         # Expect stationary accel in ENU frame: [0,0,+G0]
                         bax = axm
                         bay = aym
-                        baz = azm - G0 # Keep gravity. Set "imu0_remove_gravitational_acceleration:true" in robots/.../config/ekf_odom_params.yaml
+                        baz = azm - G0  # Keep gravity. Set "imu0_remove_gravitational_acceleration:true" in robots/.../config/ekf_odom_params.yaml
 
                         self._accel_bias = [bax, bay, baz]
 
-                        a_sx = std_dev(self._accel_sum[0], self._accel_sumsq[0])
-                        a_sy = std_dev(self._accel_sum[1], self._accel_sumsq[1])
-                        a_sz = std_dev(self._accel_sum[2], self._accel_sumsq[2])
+                        a_sx = self.std_dev(self._accel_sum[0], self._accel_sumsq[0], n) # m/s^2
+                        a_sy = self.std_dev(self._accel_sum[1], self._accel_sumsq[1], n)
+                        a_sz = self.std_dev(self._accel_sum[2], self._accel_sumsq[2], n)
 
                         self.logger.info(
                             f"Accel bias calibrated over {elapsed:.2f}s ({int(n)} samples): "
@@ -287,7 +293,7 @@ class ICM20948Node(Node):
                         if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
                             self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
 
-                        # reset calibration variables, in case we later want repeated calibration:
+                        # reset calibration accumulators; we don’t re-run calibration currently:
                         self._gyro_sum = [0.0, 0.0, 0.0]
                         self._gyro_sumsq = [0.0, 0.0, 0.0]
                         self._accel_sum = [0.0, 0.0, 0.0]
