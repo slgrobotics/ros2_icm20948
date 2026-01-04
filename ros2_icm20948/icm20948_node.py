@@ -265,14 +265,14 @@ class ICM20948Node(Node):
                         axm = self._accel_sum[0] / n
                         aym = self._accel_sum[1] / n
                         azm = self._accel_sum[2] / n
-                        self._accel_bias = [bax, bay, baz]
-
                         # Note: With ENU and “Z up”, at rest you typically want: az ≈ +9.80665 (not -9.8)
 
                         # Expect stationary accel in ENU frame: [0,0,+G0]
                         bax = axm - 0.0
                         bay = aym - 0.0
                         baz = azm - G0 # Keep gravity. Set "imu0_remove_gravitational_acceleration:true" in robots/.../config/ekf_odom_params.yaml
+
+                        self._accel_bias = [bax, bay, baz]
 
                         a_sx = std_dev(self._accel_sum[0], self._accel_sumsq[0])
                         a_sy = std_dev(self._accel_sum[1], self._accel_sumsq[1])
