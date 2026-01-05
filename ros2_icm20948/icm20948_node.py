@@ -5,7 +5,8 @@ import sensor_msgs.msg
 from rclpy.node import Node
 
 from . import qwiic_icm20948
-from .madgwick import MadgwickAHRS
+#from .madgwick import MadgwickAHRS
+from .madgwickahrs import MadgwickAHRS
 
 G0 = 9.80665  # standard gravity
 
@@ -361,7 +362,7 @@ class ICM20948Node(Node):
                 gyroscope = [gx, gy, gz]
                 accelerometer = [ax, ay, az]
                 magnetometer = [mx, my, mz]
-                filter.setSamplePeriod(dt)
+                self.filter.setSamplePeriod(dt)
 
                 # ---- Run Madgwick to compute orientation ----
                 if self.madgwick_use_mag:

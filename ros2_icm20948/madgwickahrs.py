@@ -156,6 +156,6 @@ class MadgwickAHRS:
     def quaternion_xyzw(self):
         # Quaternion: self._q = np.array([w, x, y, z])
         # ROS uses x,y,z,w
-        return (self.q[1], self.q[2], self.q[3], self.q[0])
+        return (self.quaternion.q[1], self.quaternion.q[2], self.quaternion.q[3], self.quaternion.q[0])
 
 
