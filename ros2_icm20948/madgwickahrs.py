@@ -184,13 +184,13 @@ class MadgwickAHRS:
         This sets self.quaternion such that the expected gravity direction in the
         Madgwick objective matches the measured accelerometer direction.
 
-        Returns True on success, False if inputs invalid.
+        Returns (roll, pitch, yaw) on success for logging; (None, None, None) if inputs invalid.
         """
         # --- normalize accel ---
         a = np.array([ax, ay, az], dtype=float).reshape(3,)
         a_norm = norm(a)
         if not np.isfinite(a_norm) or a_norm < 1e-12:
-            return False
+            return None, None, None
         a = a / a_norm
 
         # In this implementation's f1..f3, the predicted accel direction is:
@@ -213,7 +213,7 @@ class MadgwickAHRS:
             east_b = np.cross(up_b, ref)
             e_norm = norm(east_b)
             if e_norm < 1e-12:
-                return False
+                return None, None, None
             east_b /= e_norm
             north_b = np.cross(east_b, up_b)
 
@@ -222,7 +222,7 @@ class MadgwickAHRS:
             m = np.array([mx, my, mz], dtype=float).reshape(3,)
             m_norm = norm(m)
             if not np.isfinite(m_norm) or m_norm < 1e-12:
-                return False
+                return None, None, None
             m = m / m_norm
 
             # Project mag onto horizontal plane (perpendicular to up_b)
@@ -237,7 +237,7 @@ class MadgwickAHRS:
             east_b = np.cross(up_b, north_b)
             e_norm = norm(east_b)
             if e_norm < 1e-12:
-                return False
+                return None, None, None
             east_b /= e_norm
             # Re-orthogonalize north
             north_b = np.cross(east_b, up_b)
@@ -257,7 +257,7 @@ class MadgwickAHRS:
         self.quaternion = Quaternion(q[0], q[1], q[2], q[3])
 
         # --- return RPY used for initialization ---
-        return self._rpy_from_quaternion(self.quaternion)  # roll, pitch, yaw for logging
+        return self._rpy_from_quaternion(self.quaternion)  # (roll, pitch, yaw) for logging
 
     @staticmethod
     def _rpy_from_quaternion(q):

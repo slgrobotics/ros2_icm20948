@@ -294,14 +294,12 @@ class MadgwickAHRS:
         """
         Initialize orientation from accel (+ optional mag).
 
-        Returns:
-            (roll, pitch, yaw) in radians on success
-            None on failure
+        Returns (roll, pitch, yaw) on success for logging; (None, None, None) if inputs invalid.
         """
         # expects SI accel (m/s^2) and mag (any units), will normalize internally
         a = self._normalize3(ax, ay, az)
         if a is None:
-            return False
+            return None, None, None
         ax, ay, az = a
 
         # ROS / REP-103 body frame:
