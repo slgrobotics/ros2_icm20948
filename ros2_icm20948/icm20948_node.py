@@ -358,11 +358,18 @@ class ICM20948Node(Node):
                 mag_msg.magnetic_field.y = my
                 mag_msg.magnetic_field.z = mz
 
+                gyroscope = [gx, gy, gz]
+                accelerometer = [ax, ay, az]
+                magnetometer = [mx, my, mz]
+                filter.setSamplePeriod(dt)
+
                 # ---- Run Madgwick to compute orientation ----
                 if self.madgwick_use_mag:
-                    self.filter.update(gx, gy, gz, ax, ay, az, mx, my, mz, dt=dt)
+                    self.filter.update(gyroscope, accelerometer, magnetometer)
+                    #self.filter.update(gx, gy, gz, ax, ay, az, mx, my, mz, dt=dt)
                 else:
-                    self.filter.update(gx, gy, gz, ax, ay, az, dt=dt)
+                    self.filter.update(gyroscope, accelerometer, magnetometer)
+                    #self.filter.update(gx, gy, gz, ax, ay, az, dt=dt)
 
                 qx, qy, qz, qw = self.filter.quaternion_xyzw()
 

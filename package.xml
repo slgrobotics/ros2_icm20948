@@ -2,9 +2,10 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>ros2_icm20948</name>
-  <version>0.0.1</version>
+  <version>0.0.2</version>
   <description>Driver for the ICM-20948 IMU</description>
-  <maintainer email="simon-pierre.deschenes.1@ulaval.ca">Simon-Pierre Deschênes</maintainer>
+  <!-- Original/upstream code credits: maintainer email="simon-pierre.deschenes.1@ulaval.ca">Simon-Pierre Deschênes</maintainer -->
+  <maintainer email="slg@quakemap.com">Sergei Grichine</maintainer>
   <license>BSD-2.0</license>
 
   <depend>rclpy</depend>

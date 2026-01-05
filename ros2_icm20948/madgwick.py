@@ -1,6 +1,6 @@
 import math
 
-class MadgwickAHRS:
+class MadgwickAHRS_0:
     """
     Minimal Madgwick AHRS (IMU+Mag).
     - gyro in rad/s
