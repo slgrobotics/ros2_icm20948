@@ -19,7 +19,7 @@ class MadgwickAHRS:
 
         # Low-pass accel filter:
         self._axf = self._ayf = 0.0
-        self._azf = 1.0
+        self._azf = 9.81
         self._alpha_a = 0.2  # 0..1
 
         # Low-pass mag filter:
@@ -38,10 +38,9 @@ class MadgwickAHRS:
         self._axf = (1-self._alpha_a)*self._axf + self._alpha_a*ax
         self._ayf = (1-self._alpha_a)*self._ayf + self._alpha_a*ay
         self._azf = (1-self._alpha_a)*self._azf + self._alpha_a*az
-        ax, ay, az = self._axf, self._ayf, self._azf
 
-        # Normalize accelerometer
-        a = self._normalize3(ax, ay, az)
+        # Normalize accelerometer quaternion
+        a = self._normalize3(self._axf, self._ayf, self._azf)
         if a is None or dt <= 0.0:
             # Only integrate gyro if accel invalid
             self._integrate_gyro(gx, gy, gz, dt)
@@ -49,16 +48,25 @@ class MadgwickAHRS:
 
         ax, ay, az = a
 
-        # Normalize magnetometer (optional)
         use_mag = (mx is not None and my is not None and mz is not None)
+
         if use_mag:
-            m = self._normalize3(mx, my, mz)
+            # Low-pass mag filter (on good raw mag values):
+            self._mxf = (1-self._alpha_m)*self._mxf + self._alpha_m*mx
+            self._myf = (1-self._alpha_m)*self._myf + self._alpha_m*my
+            self._mzf = (1-self._alpha_m)*self._mzf + self._alpha_m*mz
+
+            # Normalize magnetometer quaternion:
+            m = self._normalize3(self._mxf, self._myf, self._mzf)
             if m is None:
-                use_mag = False
+                use_mag = False  # oops...
             else:
                 mx, my, mz = m
+                # simple disturbance gate: if mag vector is nearly vertical, yaw is ill-conditioned
+                if abs(mz) > 0.9:
+                    use_mag = False
 
-        qw, qx, qy, qz = self.qw, self.qx, self.qy, self.qz
+        qw, qx, qy, qz = self.qw, self.qx, self.qy, self.qz  # initial quaternion (w, x, y, z)
 
         # Rate of change of quaternion from gyroscope
         qDot1 = 0.5 * (-qx*gx - qy*gy - qz*gz)
@@ -68,17 +76,11 @@ class MadgwickAHRS:
 
         # Gradient descent correction
         if use_mag:
-            # Low-pass accel filter:
-            self._mxf = (1-self._alpha_m)*self._mxf + self._alpha_m*mx
-            self._myf = (1-self._alpha_m)*self._myf + self._alpha_m*my
-            self._mzf = (1-self._alpha_m)*self._mzf + self._alpha_m*mz
-            mx, my, mz = self._mxf, self._myf, self._mzf
-
             s1, s2, s3, s4 = self._grad_imu_mag(qw, qx, qy, qz, ax, ay, az, mx, my, mz)
         else:
             s1, s2, s3, s4 = self._grad_imu(qw, qx, qy, qz, ax, ay, az)
 
-        # dynamic beta - settling faster when not rotating
+        # dynamic beta - reduce mag influence when stationary
         omega = math.sqrt(gx*gx + gy*gy + gz*gz)  # rad/s
         # Example thresholds (tune): 0.02 rad/s ≈ 1.15 deg/s
         if omega < 0.02:
@@ -143,34 +145,102 @@ class MadgwickAHRS:
         return s1, s2, s3, s4
 
     def _grad_imu_mag(self, qw, qx, qy, qz, ax, ay, az, mx, my, mz):
-        # A compact IMU+Mag gradient; good enough for yaw stabilization.
-        # Compute reference direction of Earth's magnetic field
-        # (using standard Madgwick helper terms)
-        qwx = qw*qx; qwy = qw*qy; qwz = qw*qz
-        qxx = qx*qx; qxy = qx*qy; qxz = qx*qz
-        qyy = qy*qy; qyz = qy*qz; qzz = qz*qz
+        """
+        Canonical Madgwick 9-DOF gradient descent step (IMU + Mag).
+        Inputs must already be normalized:
+        accel (ax,ay,az) unit vector
+        mag   (mx,my,mz) unit vector
+        Returns gradient step (s0,s1,s2,s3) for quaternion (qw,qx,qy,qz).
+        """
 
-        # Rotate mag into earth frame
-        hx = 2.0*mx*(0.5 - qyy - qzz) + 2.0*my*(qxy - qwz) + 2.0*mz*(qxz + qwy)
-        hy = 2.0*mx*(qxy + qwz) + 2.0*my*(0.5 - qxx - qzz) + 2.0*mz*(qyz - qwx)
-        _2bx = math.sqrt(hx*hx + hy*hy)
-        _2bz = 2.0*mx*(qxz - qwy) + 2.0*my*(qyz + qwx) + 2.0*mz*(0.5 - qxx - qyy)
+        # Rename to Madgwick paper / common reference notation
+        q0, q1, q2, q3 = qw, qx, qy, qz
 
-        # Gradient (IMU+Mag). This is the standard form but trimmed for readability.
-        # If you ever want the fully expanded canonical version, ask and I’ll paste it.
-        f1 = 2.0*(qxz - qwy) - ax
-        f2 = 2.0*(qwx + qyz) - ay
-        f3 = 2.0*(0.5 - qxx - qyy) - az
-        f4 = 2.0*_2bx*(0.5 - qyy - qzz) + 2.0*_2bz*(qxz - qwy) - mx
-        f5 = 2.0*_2bx*(qxy - qwz) + 2.0*_2bz*(qwx + qyz) - my
-        f6 = 2.0*_2bx*(qwz + qxy) + 2.0*_2bz*(0.5 - qxx - qyy) - mz
+        # Precompute repeated quaternion products
+        q0q0 = q0 * q0
+        q1q1 = q1 * q1
+        q2q2 = q2 * q2
+        q3q3 = q3 * q3
+        q0q1 = q0 * q1
+        q0q2 = q0 * q2
+        q0q3 = q0 * q3
+        q1q2 = q1 * q2
+        q1q3 = q1 * q3
+        q2q3 = q2 * q3
 
-        # Approximate Jacobian transpose * f (works well in practice; smaller than the huge expanded form)
-        s1 = (-2.0*qy)*f1 + (2.0*qx)*f2 + 0.0*f3 + (-2.0*_2bx*qz)*f4 + (-2.0*_2bx*qy + 2.0*_2bz*qx)*f5 + (2.0*_2bx*qx)*f6
-        s2 = (2.0*qz)*f1 + (2.0*qw)*f2 + (-4.0*qx)*f3 + (2.0*_2bx*qy + 2.0*_2bz*qz)*f4 + (2.0*_2bx*qz + 2.0*_2bz*qw)*f5 + (2.0*_2bx*qy - 4.0*_2bz*qx)*f6
-        s3 = (-2.0*qw)*f1 + (2.0*qz)*f2 + (-4.0*qy)*f3 + (-4.0*_2bx*qy - 2.0*_2bz*qw)*f4 + (2.0*_2bx*qx + 2.0*_2bz*qz)*f5 + (2.0*_2bx*qw - 4.0*_2bz*qy)*f6
-        s4 = (2.0*qx)*f1 + (2.0*qy)*f2 + 0.0*f3 + (-4.0*_2bx*qz + 2.0*_2bz*qx)*f4 + (-2.0*_2bx*qw + 2.0*_2bz*qy)*f5 + (2.0*_2bx*qx)*f6
-        return s1, s2, s3, s4
+        # Common factors
+        _2q0 = 2.0 * q0
+        _2q1 = 2.0 * q1
+        _2q2 = 2.0 * q2
+        _2q3 = 2.0 * q3
+
+        _2q0mx = 2.0 * q0 * mx
+        _2q0my = 2.0 * q0 * my
+        _2q0mz = 2.0 * q0 * mz
+        _2q1mx = 2.0 * q1 * mx
+        _2q1my = 2.0 * q1 * my
+        _2q1mz = 2.0 * q1 * mz
+        _2q2mx = 2.0 * q2 * mx
+        _2q2my = 2.0 * q2 * my
+        _2q2mz = 2.0 * q2 * mz
+        _2q3mx = 2.0 * q3 * mx
+        _2q3my = 2.0 * q3 * my
+        _2q3mz = 2.0 * q3 * mz
+
+        # Reference direction of Earth's magnetic field (hx, hy, then 2bx and 2bz)
+        hx = (
+            mx * q0q0
+            - _2q0my * q3
+            + _2q0mz * q2
+            + mx * q1q1
+            + _2q1my * q2
+            + _2q1mz * q3
+            - mx * q2q2
+            - mx * q3q3
+        )
+
+        hy = (
+            _2q0mx * q3
+            + my * q0q0
+            - _2q0mz * q1
+            + _2q1mx * q2
+            - my * q1q1
+            + my * q2q2
+            + _2q2mz * q3
+            - my * q3q3
+        )
+
+        _2bx = math.sqrt(hx * hx + hy * hy)
+        _2bz = (
+            -_2q0mx * q2
+            + _2q0my * q1
+            + mz * q0q0
+            + _2q1mx * q3
+            - mz * q1q1
+            + _2q2my * q3
+            - mz * q2q2
+            + mz * q3q3
+        )
+
+        _4bx = 2.0 * _2bx
+        _4bz = 2.0 * _2bz
+
+        # Objective function elements (f1..f6)
+        f1 = 2.0 * (q1q3 - q0q2) - ax
+        f2 = 2.0 * (q0q1 + q2q3) - ay
+        f3 = 2.0 * (0.5 - q1q1 - q2q2) - az
+
+        f4 = _2bx * (0.5 - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx
+        f5 = _2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my
+        f6 = _2bx * (q0q2 + q1q3) + _2bz * (0.5 - q1q1 - q2q2) - mz
+
+        # Gradient (Jacobian^T * f), canonical Madgwick form
+        s0 = (-_2q2 * f1) + (_2q1 * f2) + (-_2bz * q2 * f4) + ((-_2bx * q3 + _2bz * q1) * f5) + (_2bx * q2 * f6)
+        s1 = (_2q3 * f1) + (_2q0 * f2) + (-4.0 * q1 * f3) + (_2bz * q3 * f4) + ((_2bx * q2 + _2bz * q0) * f5) + ((_2bx * q3 - _4bz * q1) * f6)
+        s2 = (-_2q0 * f1) + (_2q3 * f2) + (-4.0 * q2 * f3) + ((-_4bx * q2 - _2bz * q0) * f4) + ((_2bx * q1 + _2bz * q3) * f5) + ((_2bx * q0 - _4bz * q2) * f6)
+        s3 = (_2q1 * f1) + (_2q2 * f2) + ((-_4bx * q3 + _2bz * q1) * f4) + ((-_2bx * q0 + _2bz * q2) * f5) + (_2bx * q1 * f6)
+
+        return s0, s1, s2, s3
 
     def quaternion_xyzw(self):
         # ROS uses x,y,z,w
@@ -206,6 +276,7 @@ class MadgwickAHRS:
                 # Common choice: yaw = atan2(mx_level, my_level) or atan2(my_level, mx_level)
                 # If x=East,y=North: heading (yaw) = atan2(E, N) = atan2(mx2, my2)
                 yaw = math.atan2(mx2, my2)
+                # yaw = math.atan2(-mx2, my2)  # ? REP-103 body axes (x forward, y left, z up)
 
         self._set_quaternion_from_rpy(roll, pitch, yaw)
         return True
