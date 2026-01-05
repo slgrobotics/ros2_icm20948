@@ -3,6 +3,7 @@ import math
 import rclpy
 import sensor_msgs.msg
 from rclpy.node import Node
+import numpy as np
 
 from . import qwiic_icm20948
 #from .madgwick import MadgwickAHRS
@@ -320,7 +321,15 @@ class ICM20948Node(Node):
                         )
 
                         if self.madgwick_use_mag:
-                            self.filter.initialize_from_accel_mag(ax, ay, az, mx, my, mz)
+                            roll, pitch, yaw = self.filter.initialize_from_accel_mag(ax, ay, az, mx, my, mz)
+                        
+                            self.logger.info(
+                                "Madgwick init:"
+                                f" roll={np.degrees(roll): .2f} deg,"
+                                f" pitch={np.degrees(pitch): .2f} deg,"
+                                f" yaw={np.degrees(yaw): .2f} deg"
+                            )
+
 
                         # reset calibration accumulators; we don’t re-run calibration currently:
                         self._gyro_sum = [0.0, 0.0, 0.0]
