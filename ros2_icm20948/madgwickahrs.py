@@ -158,4 +158,7 @@ class MadgwickAHRS:
         # ROS uses x,y,z,w
         return (self.quaternion.q[1], self.quaternion.q[2], self.quaternion.q[3], self.quaternion.q[0])
 
+    def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
+        # stubbed for now
+        return
 
