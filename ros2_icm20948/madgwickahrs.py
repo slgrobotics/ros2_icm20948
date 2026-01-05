@@ -17,7 +17,9 @@
 """
 
 #
-# Original code: see https://github.com/morgil/madgwick_py/blob/master/madgwickahrs.py
+# Original code:  see https://github.com/morgil/madgwick_py/blob/master/madgwickahrs.py
+# ChatGPT.com review: https://chatgpt.com/s/t_695bf6b26e88819199e8094099819b7d
+#                     https://chatgpt.com/s/t_695bf7a2e8248191b570af1b5464c396
 #
 
 import warnings
@@ -29,8 +31,8 @@ from .quaternion import Quaternion
 class MadgwickAHRS:
     samplePeriod = 1/256
     quaternion = Quaternion(1, 0, 0, 0)
-    beta = 1
-    zeta = 0
+    beta = 1  # A beta of 1 rad/s is huge for many consumer IMUs at 100–500 Hz unless your gyro noise is very high
+    zeta = 0  # Gyro drift compensation
 
     def __init__(self, sampleperiod=None, quaternion=None, beta=None, zeta=None):
         """
@@ -67,14 +69,16 @@ class MadgwickAHRS:
         accelerometer = np.array(accelerometer, dtype=float).flatten()
         magnetometer = np.array(magnetometer, dtype=float).flatten()
 
-        # Normalise accelerometer measurement
-        if norm(accelerometer) is 0:
+        # Normalize accelerometer measurement & accel check
+        a_norm = norm(accelerometer)
+        if a_norm < 1e-12:
             warnings.warn("accelerometer is zero")
+            # optionally: integrate gyro-only here
             return
-        accelerometer /= norm(accelerometer)
+        accelerometer /= a_norm
 
-        # Normalise magnetometer measurement
-        if norm(magnetometer) is 0:
+        # Normalize magnetometer measurement
+        if norm(magnetometer) < 1e-12:
             warnings.warn("magnetometer is zero")
             return
         magnetometer /= norm(magnetometer)
@@ -99,21 +103,26 @@ class MadgwickAHRS:
             [-2*b[1]*q[3]+2*b[3]*q[1], 2*b[1]*q[2]+2*b[3]*q[0], 2*b[1]*q[1]+2*b[3]*q[3],  -2*b[1]*q[0]+2*b[3]*q[2]],
             [2*b[1]*q[2],              2*b[1]*q[3]-4*b[3]*q[1], 2*b[1]*q[0]-4*b[3]*q[2],  2*b[1]*q[1]]
         ])
+
         step = j.T.dot(f)
-        step /= norm(step)  # normalise step magnitude
+        step_norm = norm(step)
+        if step_norm > 1e-12:
+            step /= step_norm  # normalize step magnitude
+        else:
+            step[:] = 0.0  # or skip correction
+        stepQuat = Quaternion(step[0], step[1], step[2], step[3])
 
         # Gyroscope compensation drift
         gyroscopeQuat = Quaternion(0, gyroscope[0], gyroscope[1], gyroscope[2])
-        stepQuat = Quaternion(step.T[0], step.T[1], step.T[2], step.T[3])
 
         gyroscopeQuat = gyroscopeQuat + (q.conj() * stepQuat) * 2 * self.samplePeriod * self.zeta * -1
 
         # Compute rate of change of quaternion
-        qdot = (q * gyroscopeQuat) * 0.5 - self.beta * step.T
+        qdot = (q * gyroscopeQuat) * 0.5 + (stepQuat * (-self.beta))
 
         # Integrate to yield quaternion
         q += qdot * self.samplePeriod
-        self.quaternion = Quaternion(q / norm(q))  # normalise quaternion
+        self.quaternion = Quaternion(q / norm(q))  # normalize quaternion
 
     def update_imu(self, gyroscope, accelerometer):
         """
@@ -126,8 +135,8 @@ class MadgwickAHRS:
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
 
-        # Normalise accelerometer measurement
-        if norm(accelerometer) is 0:
+        # Normalize accelerometer measurement
+        if norm(accelerometer) < 1e-12:
             warnings.warn("accelerometer is zero")
             return
         accelerometer /= norm(accelerometer)
@@ -144,14 +153,24 @@ class MadgwickAHRS:
             [0, -4*q[1], -4*q[2], 0]
         ])
         step = j.T.dot(f)
-        step /= norm(step)  # normalise step magnitude
+        step_norm = norm(step)
+        if step_norm > 1e-12:
+            step /= step_norm  # normalize step magnitude
+        else:
+            step[:] = 0.0  # or skip correction
+        stepQuat = Quaternion(step[0], step[1], step[2], step[3])
+
+        # Gyroscope compensation drift
+        gyroscopeQuat = Quaternion(0, gyroscope[0], gyroscope[1], gyroscope[2])
+
+        gyroscopeQuat = gyroscopeQuat + (q.conj() * stepQuat) * 2 * self.samplePeriod * self.zeta * -1
 
         # Compute rate of change of quaternion
-        qdot = (q * Quaternion(0, gyroscope[0], gyroscope[1], gyroscope[2])) * 0.5 - self.beta * step.T
+        qdot = (q * gyroscopeQuat) * 0.5 + (stepQuat * (-self.beta))
 
         # Integrate to yield quaternion
         q += qdot * self.samplePeriod
-        self.quaternion = Quaternion(q / norm(q))  # normalise quaternion
+        self.quaternion = Quaternion(q / norm(q))  # normalize quaternion
 
     def quaternion_xyzw(self):
         # Quaternion: self._q = np.array([w, x, y, z])
