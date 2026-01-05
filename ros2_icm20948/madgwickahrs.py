@@ -178,6 +178,122 @@ class MadgwickAHRS:
         return (self.quaternion.q[1], self.quaternion.q[2], self.quaternion.q[3], self.quaternion.q[0])
 
     def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
-        # stubbed for now
-        return
+        """
+        Initialize quaternion from a single accel (+ optional mag) sample.
+
+        This sets self.quaternion such that the expected gravity direction in the
+        Madgwick objective matches the measured accelerometer direction.
+
+        Returns True on success, False if inputs invalid.
+        """
+        # --- normalize accel ---
+        a = np.array([ax, ay, az], dtype=float).reshape(3,)
+        a_norm = norm(a)
+        if not np.isfinite(a_norm) or a_norm < 1e-12:
+            return False
+        a = a / a_norm
+
+        # In this implementation's f1..f3, the predicted accel direction is:
+        # [ 2(q1 q3 - q0 q2),
+        #   2(q0 q1 + q2 q3),
+        #   2(0.5 - q1^2 - q2^2) ]
+        # which equals the world "down" (or up) axis expressed in body depending on convention.
+        #
+        # Empirically for this standard formulation: with identity q, predicted accel = [0,0,1].
+        # So treat measured accel (normalized) as the "up" direction in body frame.
+        up_b = a  # body-frame "up" measured by accelerometer at rest
+
+        # If no mag, we can only set roll/pitch; yaw = 0 by choosing an arbitrary reference.
+        if mx is None or my is None or mz is None:
+            # Choose an arbitrary "north" in body that's not parallel to up_b
+            ref = np.array([1.0, 0.0, 0.0])
+            if abs(np.dot(ref, up_b)) > 0.9:
+                ref = np.array([0.0, 1.0, 0.0])
+
+            east_b = np.cross(up_b, ref)
+            e_norm = norm(east_b)
+            if e_norm < 1e-12:
+                return False
+            east_b /= e_norm
+            north_b = np.cross(east_b, up_b)
+
+        else:
+            # --- normalize mag ---
+            m = np.array([mx, my, mz], dtype=float).reshape(3,)
+            m_norm = norm(m)
+            if not np.isfinite(m_norm) or m_norm < 1e-12:
+                return False
+            m = m / m_norm
+
+            # Project mag onto horizontal plane (perpendicular to up_b)
+            m_h = m - up_b * np.dot(m, up_b)
+            mh_norm = norm(m_h)
+            if mh_norm < 1e-12:
+                # mag is close to vertical; yaw ill-conditioned
+                # fall back to accel-only init
+                return self.initialize_from_accel_mag(ax, ay, az)
+
+            north_b = m_h / mh_norm
+            east_b = np.cross(up_b, north_b)
+            e_norm = norm(east_b)
+            if e_norm < 1e-12:
+                return False
+            east_b /= e_norm
+            # Re-orthogonalize north
+            north_b = np.cross(east_b, up_b)
+
+        # We now have an orthonormal triad in BODY coordinates:
+        #   north_b, east_b, up_b
+        #
+        # Interpret this as: columns of R_wb (world axes expressed in body),
+        # where world X=north, Y=east, Z=up.
+        #
+        # If columns are world axes in body, then R_bw = R_wb^T is body->world.
+        R_wb = np.column_stack((north_b, east_b, up_b))
+        R_bw = R_wb.T
+
+        # Convert rotation matrix (body->world) to quaternion (w,x,y,z)
+        q = self._quat_from_rotmat(R_bw)
+        self.quaternion = Quaternion(q[0], q[1], q[2], q[3])
+        return True
+
+    @staticmethod
+    def _quat_from_rotmat(R):
+        """
+        Convert a proper rotation matrix to quaternion (w,x,y,z).
+        Assumes R is 3x3, orthonormal, det~+1.
+        """
+        R = np.asarray(R, dtype=float).reshape(3, 3)
+        tr = R[0, 0] + R[1, 1] + R[2, 2]
+
+        if tr > 0.0:
+            S = np.sqrt(tr + 1.0) * 2.0
+            qw = 0.25 * S
+            qx = (R[2, 1] - R[1, 2]) / S
+            qy = (R[0, 2] - R[2, 0]) / S
+            qz = (R[1, 0] - R[0, 1]) / S
+        elif (R[0, 0] > R[1, 1]) and (R[0, 0] > R[2, 2]):
+            S = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2.0
+            qw = (R[2, 1] - R[1, 2]) / S
+            qx = 0.25 * S
+            qy = (R[0, 1] + R[1, 0]) / S
+            qz = (R[0, 2] + R[2, 0]) / S
+        elif R[1, 1] > R[2, 2]:
+            S = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2.0
+            qw = (R[0, 2] - R[2, 0]) / S
+            qx = (R[0, 1] + R[1, 0]) / S
+            qy = 0.25 * S
+            qz = (R[1, 2] + R[2, 1]) / S
+        else:
+            S = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2.0
+            qw = (R[1, 0] - R[0, 1]) / S
+            qx = (R[0, 2] + R[2, 0]) / S
+            qy = (R[1, 2] + R[2, 1]) / S
+            qz = 0.25 * S
+
+        q = np.array([qw, qx, qy, qz], dtype=float)
+        qn = norm(q)
+        if qn < 1e-12 or not np.isfinite(qn):
+            return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+        return q / qn
 
