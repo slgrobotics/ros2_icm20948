@@ -34,7 +34,7 @@ class MadgwickAHRS:
     beta = 1  # A beta of 1 rad/s is huge for many consumer IMUs at 100–500 Hz unless your gyro noise is very high
     zeta = 0  # Gyro drift compensation
 
-    def __init__(self, sampleperiod=None, quaternion=None, beta=None, zeta=None):
+    def __init__(self, sampleperiod=1/256, quaternion=None, beta=0.05, zeta=0.0):
         """
         Initialize the class with the given parameters.
         :param sampleperiod: The sample period
@@ -43,14 +43,10 @@ class MadgwickAHRS:
         :param beta: Algorithm gain zeta
         :return:
         """
-        if sampleperiod is not None:
-            self.samplePeriod = sampleperiod
-        if quaternion is not None:
-            self.quaternion = quaternion
-        if beta is not None:
-            self.beta = beta
-        if zeta is not None:
-            self.zeta = zeta
+        self.samplePeriod = float(sampleperiod)
+        self.quaternion = Quaternion(1,0,0,0) if quaternion is None else quaternion
+        self.beta = float(beta)
+        self.zeta = float(zeta)
 
     def setSamplePeriod(self, dt):
         self.samplePeriod = dt
@@ -67,21 +63,23 @@ class MadgwickAHRS:
 
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
+        accelerometer_raw = np.array(accelerometer, dtype=float).flatten()
         magnetometer = np.array(magnetometer, dtype=float).flatten()
 
         # Normalize accelerometer measurement & accel check
         a_norm = norm(accelerometer)
-        if a_norm < 1e-12:
+        if not np.isfinite(a_norm) or a_norm < 1e-12:
             warnings.warn("accelerometer is zero")
             # optionally: integrate gyro-only here
             return
         accelerometer /= a_norm
 
-        # Normalize magnetometer measurement
-        if norm(magnetometer) < 1e-12:
-            warnings.warn("magnetometer is zero")
-            return
-        magnetometer /= norm(magnetometer)
+        # Normalize magnetometer measurement & mag check
+        m_norm = norm(magnetometer)
+        if not np.isfinite(m_norm) or m_norm < 1e-12:
+            warnings.warn("magnetometer is zero; falling back to IMU")
+            return self.update_imu(gyroscope, accelerometer_raw)  # or integrate with accel-correction
+        magnetometer /= m_norm
 
         h = q * (Quaternion(0, magnetometer[0], magnetometer[1], magnetometer[2]) * q.conj())
         b = np.array([0, norm(h[1:3]), 0, h[3]])
@@ -135,11 +133,13 @@ class MadgwickAHRS:
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
 
-        # Normalize accelerometer measurement
-        if norm(accelerometer) < 1e-12:
+        # Normalize accelerometer measurement & accel check
+        a_norm = norm(accelerometer)
+        if not np.isfinite(a_norm) or a_norm < 1e-12:
             warnings.warn("accelerometer is zero")
+            # optionally: integrate gyro-only here
             return
-        accelerometer /= norm(accelerometer)
+        accelerometer /= a_norm
 
         # Gradient descent algorithm corrective step
         f = np.array([

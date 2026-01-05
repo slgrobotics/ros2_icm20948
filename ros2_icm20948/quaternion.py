@@ -17,7 +17,8 @@
 """
 
 #
-# Original code: see https://github.com/morgil/madgwick_py/blob/master/quaternion.py
+# Original code:  see https://github.com/morgil/madgwick_py/blob/master/quaternion.py
+# ChatGPT.com review: https://chatgpt.com/s/t_695bf7a2e8248191b570af1b5464c396
 #
 
 import numpy as np
@@ -98,7 +99,7 @@ class Quaternion:
 
     def to_euler123(self):
         roll = np.arctan2(-2 * (self[2] * self[3] - self[0] * self[1]), self[0] ** 2 - self[1] ** 2 - self[2] ** 2 + self[3] ** 2)
-        pitch = np.arcsin(2 * (self[1] * self[3] + self[0] * self[1]))
+        pitch = np.arcsin(2 * (self[1] * self[3] + self[0] * self[2]))
         yaw = np.arctan2(-2 * (self[1] * self[2] - self[0] * self[3]), self[0] ** 2 + self[1] ** 2 - self[2] ** 2 - self[3] ** 2)
         return roll, pitch, yaw
 
