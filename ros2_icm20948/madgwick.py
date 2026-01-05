@@ -80,11 +80,11 @@ class MadgwickAHRS:
         else:
             s1, s2, s3, s4 = self._grad_imu(qw, qx, qy, qz, ax, ay, az)
 
-        # dynamic beta - reduce mag influence when stationary
+        # dynamic beta - when stationary, trust accel/mag more to converge
         omega = math.sqrt(gx*gx + gy*gy + gz*gz)  # rad/s
         # Example thresholds (tune): 0.02 rad/s ≈ 1.15 deg/s
         if omega < 0.02:
-            beta = self.beta * 0.2  # settling faster
+            beta = self.beta * 3.0  # settling faster
         else:
             beta = self.beta
 
