@@ -273,15 +273,29 @@ class MadgwickAHRS_0:
         return (self.qx, self.qy, self.qz, self.qw)
 
     def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
+        """
+        Initialize orientation from accel (+ optional mag).
+
+        Returns:
+            (roll, pitch, yaw) in radians on success
+            None on failure
+        """
         # expects SI accel (m/s^2) and mag (any units), will normalize internally
         a = self._normalize3(ax, ay, az)
         if a is None:
             return False
         ax, ay, az = a
 
-        # roll/pitch from accel, ENU with z-up (gravity points +z when stationary in your convention)
-        # For a typical IMU reporting +Z up at rest: ax~0,ay~0,az~+1
+        # ROS / REP-103 body frame:
+        # x forward, y left, z up
+        # accel at rest ~ +Z
+
+        # Roll: rotation about +X (right wing down positive)
+
+        # roll/pitch from accel. For a typical IMU reporting +Z up at rest: ax~0,ay~0,az~+1
         roll  = math.atan2(ay, az)
+
+        # Pitch: rotation about +Y (nose up positive)
         pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
 
         yaw = 0.0
@@ -290,7 +304,7 @@ class MadgwickAHRS_0:
             m = self._normalize3(mx, my, mz)
             if m is not None:
                 mx, my, mz = m
-                # tilt-compensate mag
+                # tilt-compensate mag:
                 cr = math.cos(roll);  sr = math.sin(roll)
                 cp = math.cos(pitch); sp = math.sin(pitch)
 
@@ -298,14 +312,13 @@ class MadgwickAHRS_0:
                 mx2 = mx*cp + mz*sp
                 my2 = mx*sr*sp + my*cr - mz*sr*cp
 
-                # ENU: yaw=atan2(East, North) depends on your axis conventions.
-                # Common choice: yaw = atan2(mx_level, my_level) or atan2(my_level, mx_level)
-                # If x=East,y=North: heading (yaw) = atan2(E, N) = atan2(mx2, my2)
+                # ROS ENU: yaw=atan2(East, North)
+                # World: X=East, Y=North, Z=Up
                 yaw = math.atan2(mx2, my2)
-                # yaw = math.atan2(-mx2, my2)  # ? REP-103 body axes (x forward, y left, z up)
 
+        # Set quaternion from RPY:
         self._set_quaternion_from_rpy(roll, pitch, yaw)
-        return True
+        return roll, pitch, yaw    # roll, pitch, yaw for logging
 
     def _set_quaternion_from_rpy(self, roll, pitch, yaw):
         cr = math.cos(roll * 0.5);  sr = math.sin(roll * 0.5)
