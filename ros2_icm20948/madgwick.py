@@ -18,13 +18,14 @@ class MadgwickAHRS:
         self.qz = 0.0
 
         # Low-pass accel filter:
-        self._axf = self._ayf = 0.0
-        self._azf = 9.81
+        self._axf = self._ayf = self._azf = 0.0
         self._alpha_a = 0.2  # 0..1
+        self._accel_inited = False
 
         # Low-pass mag filter:
         self._mxf = self._myf = self._mzf = 0.0
         self._alpha_m = 0.2  # 0..1
+        self._mag_inited = False
 
     def _normalize3(self, x, y, z):
         n = math.sqrt(x*x + y*y + z*z)
@@ -34,14 +35,27 @@ class MadgwickAHRS:
 
     def update(self, gx, gy, gz, ax, ay, az, mx=None, my=None, mz=None, dt=0.01):
 
-        # Low-pass accel filter:
-        self._axf = (1-self._alpha_a)*self._axf + self._alpha_a*ax
-        self._ayf = (1-self._alpha_a)*self._ayf + self._alpha_a*ay
-        self._azf = (1-self._alpha_a)*self._azf + self._alpha_a*az
+        # --- Seed / update accel low-pass ---
+        # Seed from first *valid* accel vector (non-zero magnitude)
+        if not self._accel_inited:
+            if (ax*ax + ay*ay + az*az) > 1e-12:
+                self._axf, self._ayf, self._azf = ax, ay, az
+                self._accel_inited = True
+        else:
+            aa = self._alpha_a
+            # Low-pass accel filter:
+            self._axf = (1-aa)*self._axf + aa*ax
+            self._ayf = (1-aa)*self._ayf + aa*ay
+            self._azf = (1-aa)*self._azf + aa*az
+
+        # If accel not initialized yet, we can't correct; integrate gyro only
+        if not self._accel_inited or dt <= 1e-12:
+            self._integrate_gyro(gx, gy, gz, dt)
+            return
 
         # Normalize accelerometer quaternion
         a = self._normalize3(self._axf, self._ayf, self._azf)
-        if a is None or dt <= 0.0:
+        if a is None:
             # Only integrate gyro if accel invalid
             self._integrate_gyro(gx, gy, gz, dt)
             return
@@ -50,21 +64,33 @@ class MadgwickAHRS:
 
         use_mag = (mx is not None and my is not None and mz is not None)
 
+        # --- Seed / update mag low-pass ---
         if use_mag:
-            # Low-pass mag filter (on good raw mag values):
-            self._mxf = (1-self._alpha_m)*self._mxf + self._alpha_m*mx
-            self._myf = (1-self._alpha_m)*self._myf + self._alpha_m*my
-            self._mzf = (1-self._alpha_m)*self._mzf + self._alpha_m*mz
-
-            # Normalize magnetometer quaternion:
-            m = self._normalize3(self._mxf, self._myf, self._mzf)
-            if m is None:
-                use_mag = False  # oops...
+            # Seed from first valid mag vector
+            if not self._mag_inited:
+                if (mx*mx + my*my + mz*mz) > 1e-12:
+                    self._mxf, self._myf, self._mzf = mx, my, mz
+                    self._mag_inited = True
             else:
-                mx, my, mz = m
-                # simple disturbance gate: if mag vector is nearly vertical, yaw is ill-conditioned
-                if abs(mz) > 0.9:
-                    use_mag = False
+                am = self._alpha_m
+                # Low-pass mag filter (on good raw mag values):
+                self._mxf = (1-am)*self._mxf + am*mx
+                self._myf = (1-am)*self._myf + am*my
+                self._mzf = (1-am)*self._mzf + am*mz
+
+            # If mag not initialized yet, treat as unavailable this step
+            if not self._mag_inited:
+                use_mag = False
+            else:
+                # Normalize magnetometer quaternion:
+                m = self._normalize3(self._mxf, self._myf, self._mzf)
+                if m is None:
+                    use_mag = False  # oops...
+                else:
+                    mx, my, mz = m
+                    # simple disturbance gate: if mag vector is nearly vertical, yaw is ill-conditioned
+                    if abs(mz) > 0.9:
+                        use_mag = False
 
         qw, qx, qy, qz = self.qw, self.qx, self.qy, self.qz  # initial quaternion (w, x, y, z)
 
