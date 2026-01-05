@@ -1,6 +1,6 @@
 import math
 
-class MadgwickAHRS_0:
+class MadgwickAHRS:
     """
     Minimal Madgwick AHRS (IMU+Mag).
     - gyro in rad/s
@@ -10,6 +10,7 @@ class MadgwickAHRS_0:
     """
     def __init__(self, beta=0.01):
         self.beta = beta
+        self.samplePeriod = 0.01
 
         # initial quaternion (w, x, y, z)
         self.qw = 1.0
@@ -33,7 +34,24 @@ class MadgwickAHRS_0:
             return None
         return (x/n, y/n, z/n)
 
-    def update(self, gx, gy, gz, ax, ay, az, mx=None, my=None, mz=None, dt=0.01):
+    def setSamplePeriod(self, dt):
+        self.samplePeriod = dt
+
+    def update(self, gyroscope, accelerometer, magnetometer):
+    
+        gx = gyroscope[0]
+        gy = gyroscope[1]
+        gz = gyroscope[2]
+
+        ax = accelerometer[0]
+        ay = accelerometer[1]
+        az = accelerometer[2]
+
+        mx = magnetometer[0]
+        my = magnetometer[1]
+        mz = magnetometer[2]
+
+        dt = self.samplePeriod
 
         # --- Seed / update accel low-pass ---
         # Seed from first *valid* accel vector (non-zero magnitude)

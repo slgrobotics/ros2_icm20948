@@ -376,10 +376,8 @@ class ICM20948Node(Node):
                 # ---- Run Madgwick to compute orientation ----
                 if self.madgwick_use_mag:
                     self.filter.update(gyroscope, accelerometer, magnetometer)
-                    #self.filter.update(gx, gy, gz, ax, ay, az, mx, my, mz, dt=dt)
                 else:
-                    self.filter.update(gyroscope, accelerometer, magnetometer)
-                    #self.filter.update(gx, gy, gz, ax, ay, az, dt=dt)
+                    self.filter.update(gyroscope, accelerometer, [None, None, None])
 
                 qx, qy, qz, qw = self.filter.quaternion_xyzw()
 
