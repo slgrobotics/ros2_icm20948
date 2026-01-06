@@ -328,9 +328,12 @@ class MadgwickAHRS:
                 mx2 = mx*cp + mz*sp
                 my2 = mx*sr*sp + my*cr - mz*sr*cp
 
-                # ROS ENU: yaw=atan2(East, North)
-                # World: X=East, Y=North, Z=Up
-                yaw = math.atan2(mx2, my2)
+                if abs(mx2) + abs(my2) < 1e-6:
+                    yaw = 0.0
+                else:
+                    # ROS ENU: yaw=atan2(East, North)
+                    # World: X=East, Y=North, Z=Up
+                    yaw = math.atan2(my2, mx2)
 
         # Set quaternion from RPY:
         self._set_quaternion_from_rpy(roll, pitch, yaw)
