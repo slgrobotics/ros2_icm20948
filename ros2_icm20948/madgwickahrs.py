@@ -205,17 +205,22 @@ class MadgwickAHRS:
 
         # If no mag, we can only set roll/pitch; yaw = 0 by choosing an arbitrary reference.
         if mx is None or my is None or mz is None:
-            # Choose an arbitrary "north" in body that's not parallel to up_b
+            # pick an arbitrary "north" reference not parallel to up_b
             ref = np.array([1.0, 0.0, 0.0])
             if abs(np.dot(ref, up_b)) > 0.9:
                 ref = np.array([0.0, 1.0, 0.0])
 
-            east_b = np.cross(up_b, ref)
+            north_b = ref - up_b * np.dot(ref, up_b)
+            n_norm = norm(north_b)
+            if n_norm < 1e-12:
+                return None, None, None
+            north_b /= n_norm
+
+            east_b = np.cross(up_b, north_b)
             e_norm = norm(east_b)
             if e_norm < 1e-12:
                 return None, None, None
             east_b /= e_norm
-            north_b = np.cross(east_b, up_b)
 
         else:
             # --- normalize mag ---
@@ -246,10 +251,10 @@ class MadgwickAHRS:
         #   north_b, east_b, up_b
         #
         # Interpret this as: columns of R_wb (world axes expressed in body),
-        # where world X=north, Y=east, Z=up.
         #
         # If columns are world axes in body, then R_bw = R_wb^T is body->world.
-        R_wb = np.column_stack((north_b, east_b, up_b))
+        # ROS ENU: world X=East, Y=North, Z=Up
+        R_wb = np.column_stack((east_b, north_b, up_b))
         R_bw = R_wb.T
 
         # Convert rotation matrix (body->world) to quaternion (w,x,y,z)

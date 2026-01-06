@@ -77,7 +77,7 @@ class ICM20948Node(Node):
         self.declare_parameter("madgwick_beta", 0.01)   # 0.04-0.2 typical, 0.01 for faster settling after rotation 
         self.declare_parameter("madgwick_use_mag", True)
         self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
-        self.madgwick_use_mag = bool(self.get_parameter("madgwick_use_mag").value)
+        self.madgwick_use_mag = self.get_parameter("madgwick_use_mag").get_parameter_value().bool_value
         self.filter = MadgwickAHRS(beta=self.madgwick_beta)
 
         self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
@@ -234,7 +234,7 @@ class ICM20948Node(Node):
                 gz = self.imu.gzRaw * self._gyro_mul
 
                 # Mag (Tesla)
-                mag_mul = 1e-6 * 0.15  # Sensitivity Scale Factor: 0.1499 uT/LSB
+                mag_mul = 0.1499e-6  # Sensitivity Scale Factor: 0.1499 uT/LSB
                 mx = self.imu.mxRaw * mag_mul
                 my = self.imu.myRaw * mag_mul
                 mz = self.imu.mzRaw * mag_mul
@@ -294,7 +294,7 @@ class ICM20948Node(Node):
                         azm = self._accel_sum[2] / n
                         # Note: With ENU and “Z up”, at rest you typically want: az ≈ +9.80665 (not -9.8)
 
-                        # Expect stationary accel in ENU frame: [0,0,+G0]
+                        # Expect stationary accel: [0, 0, +G0]
                         bax = axm
                         bay = aym
                         baz = azm - G0  # Keep gravity. Set "imu0_remove_gravitational_acceleration:false" in robots/.../config/ekf_odom_params.yaml
@@ -312,7 +312,7 @@ class ICM20948Node(Node):
                         if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
                             self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
 
-                        # Mag measurement average vector:
+                        # Mag measurement average vector - heading at startup:
                         mxm = self._mag_sum[0] / n
                         mym = self._mag_sum[1] / n
                         mzm = self._mag_sum[2] / n
