@@ -51,7 +51,7 @@ class MadgwickAHRS:
     def setSamplePeriod(self, dt):
         self.samplePeriod = dt
 
-    def update(self, gyroscope, accelerometer, magnetometer):
+    def update(self, gyroscope, accelerometer, magnetometer=None):
         """
         Perform one update step with data from a AHRS sensor array
         :param gyroscope: A three-element array containing the gyroscope data in radians per second.
@@ -59,11 +59,15 @@ class MadgwickAHRS:
         :param magnetometer: A three-element array containing the magnetometer data. Can be any unit since a normalized value is used.
         :return:
         """
+
+        if magnetometer is None:
+            return self.update_imu(gyroscope, accelerometer)
+
         q = self.quaternion
 
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
-        accelerometer_raw = np.array(accelerometer, dtype=float).flatten()
+        accelerometer_raw = accelerometer.copy()
         magnetometer = np.array(magnetometer, dtype=float).flatten()
 
         # Normalize accelerometer measurement & accel check

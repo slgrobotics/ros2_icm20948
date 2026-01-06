@@ -37,7 +37,7 @@ class MadgwickAHRS:
     def setSamplePeriod(self, dt):
         self.samplePeriod = dt
 
-    def update(self, gyroscope, accelerometer, magnetometer):
+    def update(self, gyroscope, accelerometer, magnetometer=None):
     
         gx = gyroscope[0]
         gy = gyroscope[1]
@@ -47,9 +47,13 @@ class MadgwickAHRS:
         ay = accelerometer[1]
         az = accelerometer[2]
 
-        mx = magnetometer[0]
-        my = magnetometer[1]
-        mz = magnetometer[2]
+        if magnetometer is None:
+            use_mag = False
+        else:
+            mx = magnetometer[0]
+            my = magnetometer[1]
+            mz = magnetometer[2]
+            use_mag = (mx is not None and my is not None and mz is not None)
 
         dt = self.samplePeriod
 
@@ -79,8 +83,6 @@ class MadgwickAHRS:
             return
 
         ax, ay, az = a
-
-        use_mag = (mx is not None and my is not None and mz is not None)
 
         # --- Seed / update mag low-pass ---
         if use_mag:
