@@ -34,7 +34,23 @@ def generate_launch_description():
                     {"startup_calib_seconds": 3.0},
                     {"gyro_calib_max_std_dps": 1.0},    # warning threshold - if std dev is too high during calibration; default 1.0
                     {"accel_calib_max_std_mps2": 0.35}  # same for accel; default 0.35
-                ],
+                ]
+            ),
+
+            Node(
+                package = "tf2_ros", 
+                executable = "static_transform_publisher",
+                arguments=[
+                    '--x', '0.0',     # X translation in meters
+                    '--y', '0.0',     # Y translation in meters
+                    '--z', '0.1',     # Z translation in meters
+                    '--roll', '0.0',  # Roll in radians
+                    '--pitch', '0.0', # Pitch in radians
+                    '--yaw', '0.0',   # Yaw in radians (e.g., 90 degrees)
+                    '--frame-id', 'map', # Parent frame ID
+                    '--child-frame-id', 'imu_link' # Child frame ID
+                ]
             )
+
         ]
     )
