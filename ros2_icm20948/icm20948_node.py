@@ -191,6 +191,8 @@ class ICM20948Node(Node):
 
             mag_msg.header.stamp = imu_raw_msg.header.stamp
             mag_msg.header.frame_id = self.frame_id
+            # mag covariance unknown for now - uncalibrated mag, no noise model
+            mag_msg.magnetic_field_covariance[0] = -1.0
 
             # If no new data, keep publishing timestamps but mark orientation etc. unknown
             imu_raw_msg.orientation_covariance[0] = -1.0
@@ -240,10 +242,10 @@ class ICM20948Node(Node):
                 gy = gy_raw = self.imu.gyRaw * self._gyro_mul
                 gz = gz_raw = self.imu.gzRaw * self._gyro_mul
 
-                # Mag (Tesla)
-                # The Conversion Formula Multiply the raw 16-bit integer (LSB) by 0.15 to get the value in microTeslas,
-                #  then multiply by 10^-6 to convert to Teslas. 
-                mag_mul = 0.1499e-6  # Sensitivity Scale Factor: 0.1499 uT/LSB
+                # Mag (micro Teslas for printing and averaging)
+                # The Conversion Formula Multiply the raw 16-bit integer (LSB) by 0.1499 to get the value in microTeslas,
+                #  then (at publishing) multiply by 10^-6 to convert to Teslas. 
+                mag_mul = 0.1499  # Sensitivity Scale Factor: 0.1499 uT/LSB
                 mx = self.imu.mxRaw * mag_mul
                 my = self.imu.myRaw * mag_mul
                 mz = self.imu.mzRaw * mag_mul
@@ -332,12 +334,13 @@ class ICM20948Node(Node):
                         self._mag_avg_calib = [mxm, mym, mzm]  # cannot be used as bias
 
                         self.logger.info(
-                            f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] Tesla, measurement average during calibration"
+                            f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
                         )
 
                         if self.madgwick_use_mag:
 
-                            # use accumulated averages (accel vector and startup mag reference):
+                            # use accumulated averages (accel vector and startup mag reference)
+                            # mag vector will be normalized, so units don't matter here (micro Teslas at this point)
                             rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
                         
                             if rpy[0] is None:
@@ -383,10 +386,10 @@ class ICM20948Node(Node):
                 imu_raw_msg.angular_velocity.z = gz_raw
                 imu_raw_msg.orientation_covariance[0] = -1.0
 
-                # Fill mag message
-                mag_msg.magnetic_field.x = mx
-                mag_msg.magnetic_field.y = my
-                mag_msg.magnetic_field.z = mz
+                # Fill mag message (convert to Teslas)
+                mag_msg.magnetic_field.x = mx * 1e-6
+                mag_msg.magnetic_field.y = my * 1e-6
+                mag_msg.magnetic_field.z = mz * 1e-6
 
                 gyroscope = [gx, gy, gz]
                 accelerometer = [ax, ay, az]
