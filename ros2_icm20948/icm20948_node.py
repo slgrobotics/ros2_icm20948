@@ -87,14 +87,14 @@ class ICM20948Node(Node):
         self.declare_parameter("startup_calib_seconds", 3.0)
         self.startup_calib_seconds = float(self.get_parameter("startup_calib_seconds").value)
 
-        self.declare_parameter("gyro_calib_max_std_dps", 1.0)  # warn if more
+        self.declare_parameter("gyro_calib_max_std_dps", 2.0)  # warn if more. Usually measures around 1.7 deg/s
         self.gyro_calib_max_std_dps = float(self.get_parameter("gyro_calib_max_std_dps").value)
 
         self._gyro_bias = [0.0, 0.0, 0.0]      # rad/s
         self._gyro_sum = [0.0, 0.0, 0.0]
         self._gyro_sumsq = [0.0, 0.0, 0.0]
 
-        self.declare_parameter("accel_calib_max_std_mps2", 0.35)  # warn if more
+        self.declare_parameter("accel_calib_max_std_mps2", 0.35)  # warn if more, Usually measures around 0.06 m/s^2
         self.accel_calib_max_std_mps2 = float(self.get_parameter("accel_calib_max_std_mps2").value)
 
         self._accel_bias = [0.0, 0.0, 0.0]     # m/s^2
