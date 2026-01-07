@@ -241,6 +241,8 @@ class ICM20948Node(Node):
                 gz = gz_raw = self.imu.gzRaw * self._gyro_mul
 
                 # Mag (Tesla)
+                # The Conversion Formula Multiply the raw 16-bit integer (LSB) by 0.15 to get the value in microTeslas,
+                #  then multiply by 10^-6 to convert to Teslas. 
                 mag_mul = 0.1499e-6  # Sensitivity Scale Factor: 0.1499 uT/LSB
                 mx = self.imu.mxRaw * mag_mul
                 my = self.imu.myRaw * mag_mul
