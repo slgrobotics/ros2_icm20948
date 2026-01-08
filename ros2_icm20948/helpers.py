@@ -1,5 +1,6 @@
 
 import math
+from . import qwiic_icm20948
 
 # Standard gravity (m/s^2), ISO 80000-3
 G0 = 9.80665
