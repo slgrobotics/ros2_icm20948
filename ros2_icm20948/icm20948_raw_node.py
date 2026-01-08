@@ -335,7 +335,7 @@ class ICM20948RawNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ICM20948Node()
+    node = ICM20948RawNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
