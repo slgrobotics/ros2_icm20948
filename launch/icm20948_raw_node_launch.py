@@ -6,7 +6,7 @@ from launch import LaunchDescription
 #
 # See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/ICM20948%20IMU.md
 #
-# Testing: ros2 launch ros2_icm20948 icm20948_node_launch.py
+# Testing: ros2 launch ros2_icm20948 icm20948_raw_node_launch.py
 #
 
 def generate_launch_description():
@@ -19,8 +19,8 @@ def generate_launch_description():
 
             Node(
                 package="ros2_icm20948",
-                executable="icm20948_node",
-                name="icm20948_node",
+                executable="icm20948_raw_node",
+                name="icm20948_raw_node",
                 parameters=[{
                     # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
                     # SparkFun address is likely 0x69, generic GY-ICM20948 - 0x68
@@ -29,12 +29,36 @@ def generate_launch_description():
                     "frame_id": "imu_link",
                     "pub_rate_hz": pub_rate_hz,  # integer, default 50 in code, 200 here
                     "temp_pub_rate_hz": 1.0,     # float, default 1.0
-                    "madgwick_beta": 0.01,       # 0.01 for faster settling after rotation
-                    "madgwick_use_mag": True,
                     "startup_calib_seconds": 3.0,
                     "gyro_calib_max_std_dps": 2.0,    # warning threshold - if std dev is too high during calibration; default 1.0
                     "accel_calib_max_std_mps2": 0.35  # same for accel; default 0.35
                 }]
+            ),
+
+            # https://github.com/CCNYRoboticsLab/imu_tools/tree/jazzy
+            # sudo apt install ros-${ROS_DISTRO}-imu-tools
+            Node(
+                package='imu_filter_madgwick',
+                executable='imu_filter_madgwick_node',
+                name='imu_filter',
+                output='screen',
+                parameters=[{
+                    "stateless": False,
+                    "use_mag": True,
+                    "publish_tf": True,
+                    "reverse_tf": False,
+                    "fixed_frame": "odom",
+                    "constant_dt": 0.0,
+                    "publish_debug_topics": False,
+                    "world_frame": "enu",
+                    "gain": 0.1,
+                    "zeta": 0.0,
+                    "mag_bias_x": 0.0,
+                    "mag_bias_y": 0.0,
+                    "mag_bias_z": 0.0,
+                    "orientation_stddev": 0.0
+                }],
+                remappings=[("imu/mag", "imu/mag_raw")]
             ),
 
             # for experiments: RViz starts with "map" as Global Fixed Frame, provide a TF to see axes etc.

@@ -40,6 +40,7 @@ setup(
     entry_points={
         "console_scripts": [
             "icm20948_node = ros2_icm20948.icm20948_node:main",
+            "icm20948_raw_node = ros2_icm20948.icm20948_raw_node:main",
         ],
     },
 )
