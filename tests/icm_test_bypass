@@ -4,6 +4,21 @@ import time
 # Try 0x69 if 0x68 fails
 ADDR = 0x68
 
+"""
+@file icm_test_bypass.py
+@brief A Test for AK09916 Magnetometer via ICM-20948 I2C Master interface.
+
+This script configures the ICM-20948's internal I2C Master to communicate 
+with the integrated AK09916 magnetometer.
+
+After running this test, you should be able to see the magnetometer on the I2C bus
+at address 0x0C (AK09916) if the bypass was successful.
+    i2cdetect -y 1
+
+@author [Sergei Grichine]
+@date 2026-01-09
+"""
+
 with SMBus(1) as bus:
     # 1. Wake up ICM
     bus.write_byte_data(ADDR, 0x7F, 0x00) # Bank 0
