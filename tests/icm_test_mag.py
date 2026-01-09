@@ -1,6 +1,8 @@
 from smbus2 import SMBus
 import time
 import struct
+import signal
+import sys
 
 ICM_ADDR = 0x68  # Try 0x69 if 0x68 fails
 
@@ -151,7 +153,9 @@ def mag_init(bus):
     print(f"Mag ID: 0x{wia2:02X}")
 
     # Reset Mag: AK_CNTL3 (0x32) = 0x01
-    slv4_txn(bus, AK_ADDR, 0x32, 0x01)
+    if not slv4_txn(bus, AK_ADDR, 0x32, 0x01):
+        print("Failed to reset magnetometer")
+        return False
     time.sleep(0.1)
 
     # Set Mode: AK_CNTL2 (0x31) = 0x08 (100Hz Continuous)
@@ -175,26 +179,35 @@ def read_mag(bus):
     hx, hy, hz = struct.unpack_from('<hhh', bytes(data[1:7]))
 
     # Check ST2 (byte 8) for overflow (optional but recommended)
-    # st2 = data[8]
-    # if st2 & 0x08: return None (Magnetic sensor overflow)
+    st2 = data[8]
+    if st2 & 0x08:
+        return None  # Magnetic sensor overflow
 
     scale = 0.15 # µT/LSB
     return (hx * scale, hy * scale, hz * scale)
 
 def main():
-    with SMBus(1) as bus:
-        enable_i2c_master(bus) # Enable Master
-        mag_init(bus)          # Init Mag
+    try:
+        with SMBus(1) as bus:
+            enable_i2c_master(bus) # Enable Master
+            mag_init(bus)          # Init Mag
 
-        last = None
-        while True:
-            m = read_mag(bus)
-            if m is not None:
-                mx, my, mz = m
-                if last != m:
-                    print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}")
-                    last = m
-            time.sleep(0.2)
+            last = None
+            while True:
+                m = read_mag(bus)
+                if m is not None:
+                    mx, my, mz = m
+                    if last != m:
+                        print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}")
+                        last = m
+                time.sleep(0.2)
+    except Exception as e:
+        print(f"I2C Error: {e}")
+
+def signal_handler(sig, frame):
+    print('\nExiting...')
+    sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     main()
