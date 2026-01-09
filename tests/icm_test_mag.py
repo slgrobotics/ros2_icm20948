@@ -71,26 +71,29 @@ I2C_MST_RST = 0x02
 PWR_MGMT_1 = 0x06          # Bank 0
 I2C_MST_ODR_CONFIG = 0x00  # Bank 3
 
+chip_wait_time = 0.01
+
 def enable_i2c_master(bus):
+
     set_bank(bus, 0)
     write_reg(bus, PWR_MGMT_1, 0x01)  # wake, auto clock
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
 
     # Disable bypass
     v = read_reg(bus, INT_PIN_CFG)
     write_reg(bus, INT_PIN_CFG, v & ~BYPASS_EN)
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
 
     # Reset I2C master then enable it
     write_reg(bus, USER_CTRL, I2C_MST_RST)
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
     write_reg(bus, USER_CTRL, I2C_MST_EN)
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
 
     set_bank(bus, 3)
-    write_reg(bus, I2C_MST_CTRL, 0x0D)        # 400 kHz
+    write_reg(bus, I2C_MST_CTRL, 0x0D)        # 400 kHz; 0x07=345kHz may be safer
     write_reg(bus, I2C_MST_ODR_CONFIG, 0x04)  # ensure EXT_SENS updates
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
 
 def slv4_txn(bus, dev_addr, reg_addr, data=0x00, read=False):
     # Ensure we are in Bank 3 for setup
@@ -109,7 +112,7 @@ def slv4_txn(bus, dev_addr, reg_addr, data=0x00, read=False):
 
     # CRITICAL: Wait for the Master state machine to latch the command
     # before you switch the Bank back to 0 to poll status.
-    time.sleep(0.01)
+    time.sleep(chip_wait_time)
 
     max_retries = 50
     for _ in range(max_retries):
@@ -124,7 +127,7 @@ def slv4_txn(bus, dev_addr, reg_addr, data=0x00, read=False):
                 set_bank(bus, 3)
                 return read_reg(bus, I2C_SLV4_DI)
             return True
-        time.sleep(0.002)
+        time.sleep(chip_wait_time * 2)
 
     return None if read else False
 
@@ -191,7 +194,7 @@ def main():
                 if last != m:
                     print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}")
                     last = m
-            time.sleep(0.1)
+            time.sleep(0.2)
 
 if __name__ == "__main__":
     main()
