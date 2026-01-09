@@ -102,7 +102,7 @@ class ICM20948Node(Node):
 
         # Publishers
         self.imu_raw_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data_raw", 10)
-        self.mag_pub = self.create_publisher(sensor_msgs.msg.MagneticField, "/imu/mag_raw", 10)
+        self.mag_pub = self.create_publisher(sensor_msgs.msg.MagneticField, "/imu/mag", 10)
         self.temp_pub = self.create_publisher(sensor_msgs.msg.Temperature, "/imu/temp", 10)
 
         self.pub_clk = self.create_timer(1.0 / float(self.pub_rate_hz), self.publish_cback)
@@ -134,7 +134,7 @@ class ICM20948Node(Node):
           standard convention is:
             /imu/data_raw = raw accel+gyro, orientation unknown (cov[0] = -1)
             /imu/data = accel+gyro + orientation estimated
-            /imu/mag or /imu/mag_raw = magnetometer
+            /imu/mag (or /imu/mag_raw) = magnetometer. We prefer /imu/mag to make imu_tools package happy.
 
           That keeps downstream packages (robot_localization, Nav2) happier.
         """

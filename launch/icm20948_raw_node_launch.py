@@ -58,7 +58,7 @@ def generate_launch_description():
                     "mag_bias_z": 0.0,
                     "orientation_stddev": 0.0
                 }],
-                remappings=[("imu/mag", "imu/mag_raw")]
+                #remappings=[("imu/mag", "imu/mag"), ("imu/data_raw", "imu/data_raw"), ("imu/data", "imu/data")],
             ),
 
             # for experiments: RViz starts with "map" as Global Fixed Frame, provide a TF to see axes etc.

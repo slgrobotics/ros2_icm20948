@@ -52,6 +52,7 @@ New to qwiic? Take a look at the entire [SparkFun qwiic ecosystem](https://www.s
 
 from . import qwiic_i2c
 import time
+import struct
 
 # Define the device name and I2C addresses. These are set in the class defintion 
 # as class variables, making them avilable without having to create a class instance.
@@ -655,6 +656,30 @@ class QwiicIcm20948(object):
 		@return **bool** Returns True if I2C readBlock was successful, otherwise False.
 		"""
 
+		# here is an optimized version: using struct unpacking
+		numbytes = 23 # 14 (Accel/Gyro/Temp) + 9 (Mag)
+		self.setBank(0)
+		buff = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
+
+		# Convert list to bytes
+		buff_bytes = bytes(buff)
+
+		# 1. Unpack Big-Endian data (Accel, Gyro, Temp)
+		# >: Big-Endian, h: signed 16-bit (7 of them)
+		(self.axRaw, self.ayRaw, self.azRaw,
+		self.gxRaw, self.gyRaw, self.gzRaw,
+		self.tmpRaw) = struct.unpack('>hhhhhhh', buff_bytes[:14])
+
+		# 2. Extract Mag Status and Unpack Little-Endian Mag data
+		self.magStat1 = buff[14]
+
+		# <: Little-Endian, h: signed 16-bit (3 of them)
+		# Start at index 15, read 6 bytes
+		(self.mxRaw, self.myRaw, self.mzRaw) = struct.unpack('<hhh', buff_bytes[15:21])
+
+		self.magStat2 = buff[22]
+
+		"""
 		# Read all of the readings starting at AGB0_REG_ACCEL_XOUT_H
 		numbytes = 14 + 9 # Read Accel, gyro, temp, and 9 bytes of mag
 		self.setBank(0)
@@ -689,6 +714,7 @@ class QwiicIcm20948(object):
 		self.mxRaw = self.ToSignedInt(self.mxRaw)
 		self.myRaw = self.ToSignedInt(self.myRaw)
 		self.mzRaw = self.ToSignedInt(self.mzRaw)
+		"""
 
 		# check for data read error
 		if buff:
