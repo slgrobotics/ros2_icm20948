@@ -3,7 +3,26 @@ import time
 import struct
 
 ICM_ADDR = 0x68  # Try 0x69 if 0x68 fails
-AK_ADDR  = 0x0C
+
+"""
+@file icm_test_mag.py
+@brief A Test for AK09916 Magnetometer via ICM-20948 I2C Master interface.
+
+This script configures the ICM-20948's internal I2C Master to communicate 
+with the integrated AK09916 magnetometer. It handles register bank switching, 
+Slave 4 control transactions for initialization, and Slave 0 automated 
+burst-reads for high-frequency magnetic field data acquisition.
+
+Expected output:
+Mag [µT] X:   70.95  Y:   16.80  Z:    4.35
+Mag [µT] X:   70.50  Y:   17.40  Z:    4.50
+Mag [µT] X:   69.90  Y:   16.80  Z:    6.75
+
+@author [Sergei Grichine]
+@date 2026-01-09
+"""
+
+AK_ADDR  = 0x0C  # I2C address of AK09916 when bypass enabled
 
 # ---- ICM bank select ----
 REG_BANK_SEL = 0x7F
@@ -19,10 +38,6 @@ def read_reg(bus, reg):
 
 def read_block(bus, reg, n):
     return bus.read_i2c_block_data(ICM_ADDR, reg, n)
-
-# ---- BANK 0 regs ----
-USER_CTRL = 0x03
-EXT_SENS_DATA_00 = 0x3B
 
 # ---- BANK 3 regs (I2C master) ----
 I2C_MST_CTRL = 0x01
@@ -49,10 +64,9 @@ MST_ST_SLV4_NACK = 0x10
 INT_PIN_CFG = 0x0F     # Bank 0 on ICM-20948
 BYPASS_EN = 0x02
 USER_CTRL = 0x03       # Bank 0
+EXT_SENS_DATA_00 = 0x3B
 I2C_MST_EN = 0x20
 I2C_MST_RST = 0x02
-
-I2C_MST_CTRL = 0x01    # Bank 3 on ICM-20948
 
 PWR_MGMT_1 = 0x06          # Bank 0
 I2C_MST_ODR_CONFIG = 0x00  # Bank 3
@@ -77,26 +91,6 @@ def enable_i2c_master(bus):
     write_reg(bus, I2C_MST_CTRL, 0x0D)        # 400 kHz
     write_reg(bus, I2C_MST_ODR_CONFIG, 0x04)  # ensure EXT_SENS updates
     time.sleep(0.01)
-
-def slv4_write(bus, dev_addr, reg_addr, value, timeout_s=0.2):
-    set_bank(bus, 0)
-    _ = read_reg(bus, I2C_MST_STATUS) # Clear status
-
-    set_bank(bus, 3)
-    write_reg(bus, I2C_SLV4_ADDR, dev_addr & 0x7F)
-    write_reg(bus, I2C_SLV4_REG, reg_addr)
-    write_reg(bus, I2C_SLV4_DO, value)
-    write_reg(bus, I2C_SLV4_CTRL, 0x80 | 0x00) # Length 1 is 0x00 in this bitfield for some ICM revs
-
-    time.sleep(0.005) # MUST WAIT before changing bank back to 0
-
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
-        set_bank(bus, 0)
-        st = read_reg(bus, I2C_MST_STATUS)
-        if st & MST_ST_SLV4_DONE:
-            return True
-        time.sleep(0.005)
 
 def slv4_txn(bus, dev_addr, reg_addr, data=0x00, read=False):
     # Ensure we are in Bank 3 for setup
@@ -184,17 +178,10 @@ def read_mag(bus):
     scale = 0.15 # µT/LSB
     return (hx * scale, hy * scale, hz * scale)
 
-def wake_sensor(bus):
-    set_bank(bus, 0)
-    # Wakes the device and selects the best available clock source (0x01)
-    write_reg(bus, 0x06, 0x01) # PWR_MGMT_1
-    time.sleep(0.1)
-
 def main():
     with SMBus(1) as bus:
-        wake_sensor(bus)       # FIRST: Wake the chip
-        enable_i2c_master(bus) # SECOND: Enable Master
-        mag_init(bus)          # THIRD: Init Mag
+        enable_i2c_master(bus) # Enable Master
+        mag_init(bus)          # Init Mag
 
         last = None
         while True:
@@ -204,7 +191,7 @@ def main():
                 if last != m:
                     print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}")
                     last = m
-            time.sleep(0.05)
+            time.sleep(0.1)
 
 if __name__ == "__main__":
     main()
