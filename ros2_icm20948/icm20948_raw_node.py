@@ -33,14 +33,14 @@ class ICM20948RawNode(Node):
         self.logger.info(f"   pub_rate_hz: {self.pub_rate_hz} Hz")
         
         self.declare_parameter("temp_pub_rate_hz", 1.0)
-        self.temp_pub_rate_hz = float(self.get_parameter("temp_pub_rate_hz").value)
-        self.logger.info(f"   temp_pub_rate_hz: {self.temp_pub_rate_hz} Hz")
+        temp_pub_rate_hz = float(self.get_parameter("temp_pub_rate_hz").value)
+        self.logger.info(f"   temp_pub_rate_hz: {temp_pub_rate_hz} Hz")
 
         # Temperature averaging (accumulate at IMU rate, publish averaged at ~temp_pub_rate_hz)
         self._temp_sum_c = 0.0
         self._temp_count = 0
         # Divider: publish temperature every N IMU ticks
-        self._temp_div = max(1, int(round(self.pub_rate_hz / max(0.1, self.temp_pub_rate_hz))))
+        self._temp_div = max(1, int(round(self.pub_rate_hz / max(0.1, temp_pub_rate_hz))))
 
         # Gyro and Accel calibration on startup:
         self.declare_parameter("startup_calib_seconds", 3.0)
@@ -136,7 +136,8 @@ class ICM20948RawNode(Node):
             # mag covariance unknown for now - uncalibrated mag, no noise model
             mag_msg.magnetic_field_covariance[0] = -1.0
 
-            # If no new data, keep publishing timestamps but mark orientation etc. unknown
+            # If no new data, keep publishing timestamps
+            # always mark orientation etc. covariances unknown for raw data
             imu_raw_msg.orientation_covariance[0] = -1.0
             imu_raw_msg.linear_acceleration_covariance[0] = -1.0
             imu_raw_msg.angular_velocity_covariance[0] = -1.0
@@ -289,7 +290,6 @@ class ICM20948RawNode(Node):
                 imu_raw_msg.angular_velocity.x = gx_raw
                 imu_raw_msg.angular_velocity.y = gy_raw
                 imu_raw_msg.angular_velocity.z = gz_raw
-                imu_raw_msg.orientation_covariance[0] = -1.0
 
                 # Fill mag message (convert to Teslas)
                 mag_msg.magnetic_field.x = mx * 1e-6
@@ -310,7 +310,7 @@ class ICM20948RawNode(Node):
                     temp_msg.header.stamp = imu_raw_msg.header.stamp
                     temp_msg.header.frame_id = self.frame_id
                     temp_msg.temperature = round(avg_temp_c, 2)
-                    temp_msg.variance = 0.0 # 0 means unknown
+                    temp_msg.variance = 0.25 # +- 0.5 degrees C squared
                     self.temp_pub.publish(temp_msg)
                     # Reset accumulator for next window
                     self._temp_sum_c = 0.0
