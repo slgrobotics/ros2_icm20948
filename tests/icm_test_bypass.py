@@ -1,8 +1,7 @@
 from smbus2 import SMBus
 import time
 
-# Try 0x69 if 0x68 fails
-ADDR = 0x68
+ICM_ADDR = 0x68  # 0x69 (Adafruit) or 0x68 (generic board)
 
 """
 @file icm_test_bypass.py
@@ -15,19 +14,23 @@ After running this test, you should be able to see the magnetometer on the I2C b
 at address 0x0C (AK09916) if the bypass was successful.
     i2cdetect -y 1
 
+You need to power cycle the ICM-20948 device after you're done to reset the bypass and return to normal operation.
+
+Don't run this script unless you want to test the bypass mode specifically (and you know what you're doing).
+
 @author [Sergei Grichine]
 @date 2026-01-09
 """
 
 with SMBus(1) as bus:
     # 1. Wake up ICM
-    bus.write_byte_data(ADDR, 0x7F, 0x00) # Bank 0
-    bus.write_byte_data(ADDR, 0x06, 0x01) # PWR_MGMT_1: Wake
+    bus.write_byte_data(ICM_ADDR, 0x7F, 0x00) # Bank 0
+    bus.write_byte_data(ICM_ADDR, 0x06, 0x01) # PWR_MGMT_1: Wake
     time.sleep(0.1)
 
     # 2. Enable Bypass
-    bus.write_byte_data(ADDR, 0x03, 0x00) # USER_CTRL: Disable Master
-    bus.write_byte_data(ADDR, 0x0F, 0x02) # INT_PIN_CFG: Enable Bypass
+    bus.write_byte_data(ICM_ADDR, 0x03, 0x00) # USER_CTRL: Disable Master
+    bus.write_byte_data(ICM_ADDR, 0x0F, 0x02) # INT_PIN_CFG: Enable Bypass
     time.sleep(0.1)
 
     # 3. Check if Magnetometer (0x0C) is now visible
