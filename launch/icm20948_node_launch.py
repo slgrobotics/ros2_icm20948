@@ -33,7 +33,8 @@ def generate_launch_description():
                 "madgwick_use_mag": True,
                 "startup_calib_seconds": 3.0,
                 "gyro_calib_max_std_dps": 2.0,    # warning threshold - if std dev is too high during calibration; default 1.0
-                "accel_calib_max_std_mps2": 0.35  # same for accel; default 0.35
+                "accel_calib_max_std_mps2": 0.35, # same for accel; default 0.35
+                "magnetometer_bias": [-3.28, -25.93, 21.88]  # use ../tests/icm_calibrate_mag.py to find these values
             }]
         ),
 

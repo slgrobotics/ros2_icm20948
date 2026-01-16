@@ -17,22 +17,32 @@ class ICM20948RawNode(Node):
 
         self.logger.info("IP: ICM20948 IMU Sensor RAW node has been started")
 
+        self.declare_parameters(
+            namespace='',
+            parameters=[
+                ('i2c_address', 0x68),
+                ('frame_id', 'imu_link'),
+                ('pub_rate_hz', 50),
+                ('temp_pub_rate_hz', 1.0),
+                ('startup_calib_seconds', 3.0),
+                ('gyro_calib_max_std_dps', 2.0),       # warn if more. Usually measures around 1.7 deg/s
+                ('accel_calib_max_std_mps2', 0.35),    # warn if more, Usually measures around 0.06 m/s^2
+                ('magnetometer_bias', [0.0, 0.0, 0.0]),
+            ]
+        )
+
         # Parameters
-        self.declare_parameter("i2c_address", 0x68)
         self.i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X}")
 
         # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py 
 
-        self.declare_parameter("frame_id", "imu_icm20948")
         self.frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
         self.logger.info(f"   frame_id: {self.frame_id}")
 
-        self.declare_parameter("pub_rate_hz", 50)
         self.pub_rate_hz = self.get_parameter("pub_rate_hz").get_parameter_value().integer_value
         self.logger.info(f"   pub_rate_hz: {self.pub_rate_hz} Hz")
         
-        self.declare_parameter("temp_pub_rate_hz", 1.0)
         temp_pub_rate_hz = float(self.get_parameter("temp_pub_rate_hz").value)
         self.logger.info(f"   temp_pub_rate_hz: {temp_pub_rate_hz} Hz")
 
@@ -43,22 +53,25 @@ class ICM20948RawNode(Node):
         self._temp_div = max(1, int(round(self.pub_rate_hz / max(0.1, temp_pub_rate_hz))))
 
         # Gyro and Accel calibration on startup:
-        self.declare_parameter("startup_calib_seconds", 3.0)
         self.startup_calib_seconds = float(self.get_parameter("startup_calib_seconds").value)
 
-        self.declare_parameter("gyro_calib_max_std_dps", 2.0)  # warn if more. Usually measures around 1.7 deg/s
         self.gyro_calib_max_std_dps = float(self.get_parameter("gyro_calib_max_std_dps").value)
 
         self._gyro_bias = [0.0, 0.0, 0.0]      # rad/s
         self._gyro_sum = [0.0, 0.0, 0.0]
         self._gyro_sumsq = [0.0, 0.0, 0.0]
 
-        self.declare_parameter("accel_calib_max_std_mps2", 0.35)  # warn if more, Usually measures around 0.06 m/s^2
         self.accel_calib_max_std_mps2 = float(self.get_parameter("accel_calib_max_std_mps2").value)
 
         self._accel_bias = [0.0, 0.0, 0.0]     # m/s^2
         self._accel_sum = [0.0, 0.0, 0.0]
         self._accel_sumsq = [0.0, 0.0, 0.0]
+
+        self.magnetometer_bias = self.get_parameter("magnetometer_bias").get_parameter_value().double_array_value
+
+        self.logger.info(
+            f"   mag bias=[{self.magnetometer_bias[0]:.6g}, {self.magnetometer_bias[1]:.6g}, {self.magnetometer_bias[2]:.6g}] microtesla"
+        )
 
         self.logger.info(f"   startup_calib_seconds: {self.startup_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}  accel_calib_max_std_mps2: {self.accel_calib_max_std_mps2}")
 
@@ -160,20 +173,20 @@ class ICM20948RawNode(Node):
                 # Accel (m/s^2) -- apply our scaling;
                 ax = ax_raw = self.imu.axRaw * self._accel_mul
                 ay = ay_raw = self.imu.ayRaw * self._accel_mul
-                az = az_raw = self.imu.azRaw * self._accel_mul
+                az = az_raw = -self.imu.azRaw * self._accel_mul
 
                 # Gyro (rad/s) -- apply our scaling;
                 gx = gx_raw = self.imu.gxRaw * self._gyro_mul
                 gy = gy_raw = self.imu.gyRaw * self._gyro_mul
-                gz = gz_raw = self.imu.gzRaw * self._gyro_mul
+                gz = gz_raw = -self.imu.gzRaw * self._gyro_mul
 
                 # Mag (micro Teslas for printing and averaging)
                 # The Conversion Formula Multiply the raw 16-bit integer (LSB) by 0.1499 to get the value in microTeslas,
                 #  then (at publishing) multiply by 10^-6 to convert to Teslas. 
                 mag_mul = 0.1499  # Sensitivity Scale Factor: 0.1499 uT/LSB
-                mx = self.imu.mxRaw * mag_mul
-                my = self.imu.myRaw * mag_mul
-                mz = self.imu.mzRaw * mag_mul
+                mx = self.imu.mxRaw * mag_mul - self.magnetometer_bias[0]
+                my = self.imu.myRaw * mag_mul - self.magnetometer_bias[1]
+                mz = self.imu.mzRaw * mag_mul - self.magnetometer_bias[2]
 
                 # ---- Gyro and Accel biases calibration phase ----
                 if not self._calibration_done:
