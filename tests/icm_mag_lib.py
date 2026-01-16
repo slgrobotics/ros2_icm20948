@@ -69,7 +69,10 @@ chip_wait_time = 0.01
 
 def enable_i2c_master(bus, addr):
 
+    global icm_addr
     icm_addr = addr
+
+    print(f"Device address: 0x{icm_addr:x}")
 
     set_bank(bus, 0)
     write_reg(bus, PWR_MGMT_1, 0x01)  # wake, auto clock
