@@ -5,7 +5,7 @@ import sensor_msgs.msg
 from rclpy.node import Node
 import numpy as np
 
-from . import qwiic_icm20948
+from .i2c import qwiic_icm20948
 from .helpers import G0, std_dev_from_sums, accel_raw_to_mps2, gyro_raw_to_rads
 
 #
