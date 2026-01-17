@@ -26,7 +26,7 @@ class ICM20948Node(Node):
             parameters=[
                 ('i2c_address', 0x68),
                 ('frame_id', 'imu_link'),
-                ('raw_only', False),
+                ('raw_only', False),    # When True - only publish raw IMU data - /imu/data_raw and /imu/mag (for imu_tools, without orientation)
                 ('pub_rate_hz', 50),
                 ('temp_pub_rate_hz', 1.0),
                 ('startup_calib_seconds', 3.0),

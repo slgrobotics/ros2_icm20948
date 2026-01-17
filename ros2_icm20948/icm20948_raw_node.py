@@ -8,6 +8,10 @@ import numpy as np
 from . import qwiic_icm20948
 from .helpers import G0, std_dev_from_sums, accel_raw_to_mps2, gyro_raw_to_rads
 
+#
+# obsolete, now use icm20948_node with raw_only=True
+#
+
 class ICM20948RawNode(Node):
     def __init__(self):
         super().__init__("icm20948_raw_node")

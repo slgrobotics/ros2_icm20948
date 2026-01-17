@@ -19,7 +19,8 @@ def generate_launch_description():
 
         Node(
             package="ros2_icm20948",
-            executable="icm20948_raw_node",
+            #executable="icm20948_raw_node", # obsolete, now use icm20948_node with raw_only=True
+            executable="icm20948_node",
             name="icm20948_raw_node",
             parameters=[{
                 # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
