@@ -38,6 +38,8 @@ class ICM20948Node(Node):
             ]
         )
 
+        self._mag_mul_uT_per_lsb = 0.1499  # microT/LSB (verify vs your mag mode, if you change that)
+
         # Parameters
         self.i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X}")
@@ -77,22 +79,59 @@ class ICM20948Node(Node):
         self._accel_sum = [0.0, 0.0, 0.0]
         self._accel_sumsq = [0.0, 0.0, 0.0]
 
-        self.magnetometer_bias = self.get_parameter("magnetometer_bias").get_parameter_value().double_array_value
+        self.mag_offset_uT = self.get_parameter("magnetometer_bias").get_parameter_value().double_array_value
 
         self.logger.info(
-            f"   mag bias=[{self.magnetometer_bias[0]:.6g}, {self.magnetometer_bias[1]:.6g}, {self.magnetometer_bias[2]:.6g}] microtesla"
+            f"   mag bias=[{self.mag_offset_uT[0]:.6g}, {self.mag_offset_uT[1]:.6g}, {self.mag_offset_uT[2]:.6g}] microtesla"
         )
 
         self.logger.info(f"   startup_calib_seconds: {self.startup_calib_seconds}   gyro_calib_max_std_dps: {self.gyro_calib_max_std_dps}  accel_calib_max_std_mps2: {self.accel_calib_max_std_mps2}")
 
         # Mag calibration accumulators:
-        self._mag_avg_calib = [0.0, 0.0, 0.0]  # Tesla
+        self._mag_avg_calib = [0.0, 0.0, 0.0]  # microtesla
         self._mag_sum = [0.0, 0.0, 0.0]
 
         self._calib_start_time = self.get_clock().now()
         self._calib_samples = 0
         self._calibration_done = False
         self._shutting_down = False
+        # Madgwick-specific variables:
+        self._orientation_valid = False
+        self._madgwick_updates = 0
+        self._last_stamp = None
+
+        # --- Preallocate messages (avoid per-tick allocations) ---
+        self._imu_raw_msg = sensor_msgs.msg.Imu()
+        self._imu_raw_msg.header.frame_id = self.frame_id
+        self._imu_raw_msg.orientation_covariance[0] = -1.0
+        self._imu_raw_msg.linear_acceleration_covariance[0] = -1.0
+        self._imu_raw_msg.angular_velocity_covariance[0] = -1.0
+
+        self._mag_msg = sensor_msgs.msg.MagneticField()
+        self._mag_msg.header.frame_id = self.frame_id
+        self._mag_msg.magnetic_field_covariance[0] = -1.0
+
+        self._temp_msg = sensor_msgs.msg.Temperature()
+        self._temp_msg.header.frame_id = self.frame_id
+        self._temp_msg.variance = 0.25  # (0.5C)^2
+
+        self._imu_msg = None
+        if not self.raw_only:
+            self._imu_msg = sensor_msgs.msg.Imu()
+            self._imu_msg.header.frame_id = self.frame_id
+
+            # Defaults for "unknown"; overwrite when valid
+            self._imu_msg.orientation_covariance[0] = -1.0
+            self._imu_msg.orientation_covariance[4] = 0.0
+            self._imu_msg.orientation_covariance[8] = 0.0
+
+            # Static accel/gyro covariances (tune later)
+            self._imu_msg.linear_acceleration_covariance[0] = 0.10
+            self._imu_msg.linear_acceleration_covariance[4] = 0.10
+            self._imu_msg.linear_acceleration_covariance[8] = 0.10
+            self._imu_msg.angular_velocity_covariance[0] = 0.02
+            self._imu_msg.angular_velocity_covariance[4] = 0.02
+            self._imu_msg.angular_velocity_covariance[8] = 0.02
 
         # IMU instance
         self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)
@@ -140,11 +179,13 @@ class ICM20948Node(Node):
             self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
             self.logger.info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
 
-            # Madgwick-specific variables and publisher:
-            self._orientation_valid = False
-            self._madgwick_updates = 0
-            self._last_stamp = None
+            # Madgwick-specific publisher (with orientation):
             self.imu_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data", 10)
+
+            # preallocate vectors once to avoid doing it every tick:
+            self._gyro_vec = [0.0, 0.0, 0.0]
+            self._acc_vec  = [0.0, 0.0, 0.0]
+            self._mag_vec  = [0.0, 0.0, 0.0]
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
@@ -152,329 +193,266 @@ class ICM20948Node(Node):
     # callback called at pub_rate_hz:
     #
     def publish_cback(self):
-
         """
-          standard convention is:
-            /imu/data_raw = raw accel+gyro, orientation unknown (cov[0] = -1)
-            /imu/data = accel+gyro + orientation estimated
-            /imu/mag (or /imu/mag_raw) = magnetometer. We prefer /imu/mag to make imu_tools package happy.
-
-          That keeps downstream packages (robot_localization, Nav2) happier.
+        Publishes:
+        /imu/data_raw : accel+gyro only, orientation unknown (orientation_cov[0] = -1)
+        /imu/data     : accel+gyro + orientation (Madgwick) when raw_only == False
+        /imu/mag      : magnetometer (MagneticField)
+        /imu/temp     : averaged temperature
         """
 
         if self._shutting_down:
             return
 
+        # publish only fresh
+        if not self.imu.dataReady():
+            return
+
+        now = self.get_clock().now()
         try:
-            imu_raw_msg = sensor_msgs.msg.Imu()
-            mag_msg = sensor_msgs.msg.MagneticField()
+            self.imu.getAgmt()
+        except Exception as e:
+            self.logger.error(f"ICM20948 getAgmt() failed: {e}")
+            return
 
-            now = self.get_clock().now()
+        stamp = now.to_msg()
 
-            imu_raw_msg.header.stamp = now.to_msg()
-            imu_raw_msg.header.frame_id = self.frame_id
+        # Update headers (stamp changes every tick)
+        self._imu_raw_msg.header.stamp = stamp
+        self._mag_msg.header.stamp = stamp
+        if self._imu_msg is not None:
+            self._imu_msg.header.stamp = stamp
 
-            mag_msg.header.stamp = imu_raw_msg.header.stamp
-            mag_msg.header.frame_id = self.frame_id
-            # mag covariance unknown for now - uncalibrated mag, no noise model
-            mag_msg.magnetic_field_covariance[0] = -1.0
+        # --- dt for filter ---
+        dt = None
+        if not self.raw_only:
+            if self._last_stamp is None:
+                dt = 1.0 / float(self.pub_rate_hz)
+            else:
+                dt = (now - self._last_stamp).nanoseconds * 1e-9
+                if dt <= 0.0:
+                    dt = 1.0 / float(self.pub_rate_hz)
+                elif dt > 0.2:
+                    dt = 0.2
+            self._last_stamp = now
 
-            # If no new data, keep publishing timestamps
-            # always mark orientation etc. covariances unknown for raw data
-            imu_raw_msg.orientation_covariance[0] = -1.0
-            imu_raw_msg.linear_acceleration_covariance[0] = -1.0
-            imu_raw_msg.angular_velocity_covariance[0] = -1.0
+        # --- Convert raw -> SI ---
+        ax_raw = self.imu.axRaw * self._accel_mul
+        ay_raw = self.imu.ayRaw * self._accel_mul
+        az_raw = -self.imu.azRaw * self._accel_mul
 
-            if not self.raw_only:
-                # /imu/data - published only when filter is involved:
-                imu_msg = sensor_msgs.msg.Imu()
-                imu_msg.header.stamp = imu_raw_msg.header.stamp
-                imu_msg.header.frame_id = self.frame_id
+        gx_raw = self.imu.gxRaw * self._gyro_mul
+        gy_raw = self.imu.gyRaw * self._gyro_mul
+        gz_raw = -self.imu.gzRaw * self._gyro_mul
 
-                # covariances for imu_msg will be overwritten when we have fresh data:
-                imu_msg.orientation_covariance[0] = -1.0
-                imu_msg.linear_acceleration_covariance[0] = -1.0
-                imu_msg.angular_velocity_covariance[0] = -1.0
+        mx_uT = self.imu.mxRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[0])
+        my_uT = self.imu.myRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[1])
+        mz_uT = self.imu.mzRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[2])
 
-            if self.imu.dataReady():
-                try:
-                    self.imu.getAgmt()
-                except Exception as e:
-                    self.logger.error(str(e))
-                    # Publish empty messages with timestamps anyway
-                    self.imu_raw_pub.publish(imu_raw_msg)
-                    if not self.raw_only:
-                        self.imu_pub.publish(imu_msg)
-                    self.mag_pub.publish(mag_msg)
-                    return
+        # Start with bias-corrected equal to raw
+        ax, ay, az = ax_raw, ay_raw, az_raw
+        gx, gy, gz = gx_raw, gy_raw, gz_raw
 
-                if not self.raw_only:
-                    # We have data. Compute dt for filter
-                    if self._last_stamp is None:
-                        dt = 1.0 / float(self.pub_rate_hz)
-                    else:
-                        dt = (now - self._last_stamp).nanoseconds * 1e-9
-                        # Clamp dt to sane bounds (prevents huge jumps if system pauses)
-                        if dt <= 0.0:
-                            dt = 1.0 / float(self.pub_rate_hz)
-                        elif dt > 0.2:
-                            dt = 0.2
-                    self._last_stamp = now
+        # --- Calibration accumulation ---
+        if not self._calibration_done:
+            # Accumulate gyro
+            self._gyro_sum[0] += gx
+            self._gyro_sum[1] += gy
+            self._gyro_sum[2] += gz
+            self._gyro_sumsq[0] += gx * gx
+            self._gyro_sumsq[1] += gy * gy
+            self._gyro_sumsq[2] += gz * gz
 
-                # ---- Convert raw -> SI units ----
+            # Accumulate accel
+            self._accel_sum[0] += ax
+            self._accel_sum[1] += ay
+            self._accel_sum[2] += az
+            self._accel_sumsq[0] += ax * ax
+            self._accel_sumsq[1] += ay * ay
+            self._accel_sumsq[2] += az * az
 
-                # keep raw values per ROS convention:
-                #     /imu/data_raw: unfused, unfiltered, unmodified accel+gyro (orientation unknown)
+            # Accumulate mag average
+            self._mag_sum[0] += mx_uT
+            self._mag_sum[1] += my_uT
+            self._mag_sum[2] += mz_uT
 
-                # Accel (m/s^2) -- apply our scaling;
-                ax = ax_raw = self.imu.axRaw * self._accel_mul
-                ay = ay_raw = self.imu.ayRaw * self._accel_mul
-                az = az_raw = -self.imu.azRaw * self._accel_mul
+            self._calib_samples += 1
 
-                # Gyro (rad/s) -- apply our scaling;
-                gx = gx_raw = self.imu.gxRaw * self._gyro_mul
-                gy = gy_raw = self.imu.gyRaw * self._gyro_mul
-                gz = gz_raw = -self.imu.gzRaw * self._gyro_mul
+            elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
+            if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
+                # --- finalize calibration ---
+                self._calibration_done = True
+                self._madgwick_updates = 0
+                self._orientation_valid = False
 
-                # Mag (micro Teslas for printing and averaging)
-                # The Conversion Formula Multiply the raw 16-bit integer (LSB) by 0.1499 to get the value in microTeslas,
-                #  then (at publishing) multiply by 10^-6 to convert to Teslas. 
-                mag_mul = 0.1499  # Sensitivity Scale Factor: 0.1499 uT/LSB
-                mx = self.imu.mxRaw * mag_mul - self.magnetometer_bias[0]
-                my = self.imu.myRaw * mag_mul - self.magnetometer_bias[1]
-                mz = self.imu.mzRaw * mag_mul - self.magnetometer_bias[2]
+                n = float(self._calib_samples)
+                self.logger.info(f"IMU biases calibrated over {elapsed:.2f}s - ({int(n)} samples): ")
 
-                # ---- Gyro and Accel biases calibration phase ----
-                if not self._calibration_done:
-                    self._gyro_sum[0] += gx
-                    self._gyro_sum[1] += gy
-                    self._gyro_sum[2] += gz
-                    self._gyro_sumsq[0] += gx*gx
-                    self._gyro_sumsq[1] += gy*gy
-                    self._gyro_sumsq[2] += gz*gz
+                # Gyro bias
+                bgx = self._gyro_sum[0] / n
+                bgy = self._gyro_sum[1] / n
+                bgz = self._gyro_sum[2] / n
+                self._gyro_bias = [bgx, bgy, bgz]
 
-                    self._accel_sum[0] += ax
-                    self._accel_sum[1] += ay
-                    self._accel_sum[2] += az
-                    self._accel_sumsq[0] += ax*ax
-                    self._accel_sumsq[1] += ay*ay
-                    self._accel_sumsq[2] += az*az
+                g_sx = std_dev_from_sums(self._gyro_sum[0], self._gyro_sumsq[0], n) * 180.0 / math.pi
+                g_sy = std_dev_from_sums(self._gyro_sum[1], self._gyro_sumsq[1], n) * 180.0 / math.pi
+                g_sz = std_dev_from_sums(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
 
-                    # to get measurement average during calibration:
-                    self._mag_sum[0] += mx
-                    self._mag_sum[1] += my
-                    self._mag_sum[2] += mz
+                self.logger.info(
+                    f"Gyro  bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
+                )
+                if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
+                    self.logger.warning("Gyro calibration std dev is high — robot may have been moving during startup.")
 
-                    self._calib_samples += 1
+                # Accel bias (expect [0,0,+G0])
+                axm = self._accel_sum[0] / n
+                aym = self._accel_sum[1] / n
+                azm = self._accel_sum[2] / n
 
-                    elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
+                bax = axm
+                bay = aym
+                baz = azm - G0
+                self._accel_bias = [bax, bay, baz]
 
-                    if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
-                        # -------- Calibration cycle finished, calculate biases ------------------
-                        self._calibration_done = True
-                        self._madgwick_updates = 0
-                        self._orientation_valid = False
+                a_sx = std_dev_from_sums(self._accel_sum[0], self._accel_sumsq[0], n)
+                a_sy = std_dev_from_sums(self._accel_sum[1], self._accel_sumsq[1], n)
+                a_sz = std_dev_from_sums(self._accel_sum[2], self._accel_sumsq[2], n)
 
-                        n = float(self._calib_samples)
+                self.logger.info(
+                    f"Accel bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
+                )
+                if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
+                    self.logger.warning("Accel calibration std dev is high — robot may have been moving during startup.")
 
-                        self.logger.info(f"IMU biases calibrated over {elapsed:.2f}s - ({int(n)} samples): ")
+                # Mag average during calibration
+                mxm = self._mag_sum[0] / n
+                mym = self._mag_sum[1] / n
+                mzm = self._mag_sum[2] / n
+                self._mag_avg_calib = [mxm, mym, mzm]
+                self.logger.info(
+                    f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
+                )
 
-                        # Gyro calibration calculations:
-                        bgx = self._gyro_sum[0] / n
-                        bgy = self._gyro_sum[1] / n
-                        bgz = self._gyro_sum[2] / n
-                        self._gyro_bias = [bgx, bgy, bgz]
-
-                        g_sx = std_dev_from_sums(self._gyro_sum[0], self._gyro_sumsq[0], n) * 180.0 / math.pi  # convert to deg/s for readability
-                        g_sy = std_dev_from_sums(self._gyro_sum[1], self._gyro_sumsq[1], n) * 180.0 / math.pi
-                        g_sz = std_dev_from_sums(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
-
-                        self.logger.info(
-                            f"Gyro  bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
-                        )
-
-                        if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
-                            self.logger.warning(
-                                "Gyro calibration std dev is high — robot may have been moving during startup."
+                # Initialize filter if enabled
+                if (not self.raw_only) and self.madgwick_use_mag:
+                    try:
+                        rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
+                        if rpy[0] is None:
+                            self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
+                        else:
+                            roll, pitch, yaw = rpy
+                            self.logger.info(
+                                "Madgwick init:"
+                                f" roll={np.degrees(roll): .2f} deg,"
+                                f" pitch={np.degrees(pitch): .2f} deg,"
+                                f" yaw={np.degrees(yaw): .2f} deg"
                             )
+                    except Exception as e:
+                        self._orientation_valid = False
+                        self._imu_msg.orientation_covariance[0] = -1.0
+                        self._imu_msg.orientation_covariance[4] = 0.0
+                        self._imu_msg.orientation_covariance[8] = 0.0
+                        self.logger.warning(f"Madgwick init threw exception: {e}")
 
-                        # Accel calibration calculations (we assume the robot is level during calibration, Z axis is up)
-                        axm = self._accel_sum[0] / n
-                        aym = self._accel_sum[1] / n
-                        azm = self._accel_sum[2] / n
-                        # Note: With ENU and “Z up”, at rest you typically want: az ≈ +9.80665 (not -9.8)
+                # Reset accumulators
+                self._gyro_sum = [0.0, 0.0, 0.0]
+                self._gyro_sumsq = [0.0, 0.0, 0.0]
+                self._accel_sum = [0.0, 0.0, 0.0]
+                self._accel_sumsq = [0.0, 0.0, 0.0]
+                self._mag_sum = [0.0, 0.0, 0.0]
+                self._calib_samples = 0
 
-                        # Expect stationary accel: [0, 0, +G0]
-                        bax = axm
-                        bay = aym
-                        baz = azm - G0  # Keep gravity. Set "imu0_remove_gravitational_acceleration:false" in robots/.../config/ekf_odom_params.yaml
+        # --- Apply biases once calibrated (for fused output + filter input) ---
+        if self._calibration_done:
+            gx -= self._gyro_bias[0]
+            gy -= self._gyro_bias[1]
+            gz -= self._gyro_bias[2]
 
-                        self._accel_bias = [bax, bay, baz]
+            ax -= self._accel_bias[0]
+            ay -= self._accel_bias[1]
+            az -= self._accel_bias[2]
 
-                        a_sx = std_dev_from_sums(self._accel_sum[0], self._accel_sumsq[0], n) # m/s^2
-                        a_sy = std_dev_from_sums(self._accel_sum[1], self._accel_sumsq[1], n)
-                        a_sz = std_dev_from_sums(self._accel_sum[2], self._accel_sumsq[2], n)
+        # --- Fill and publish RAW IMU (unbiased) ---
+        self._imu_raw_msg.linear_acceleration.x = ax_raw
+        self._imu_raw_msg.linear_acceleration.y = ay_raw
+        self._imu_raw_msg.linear_acceleration.z = az_raw
+        self._imu_raw_msg.angular_velocity.x = gx_raw
+        self._imu_raw_msg.angular_velocity.y = gy_raw
+        self._imu_raw_msg.angular_velocity.z = gz_raw
+        self.imu_raw_pub.publish(self._imu_raw_msg)
 
-                        self.logger.info(
-                            f"Accel bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
-                        )
+        # --- Fill and publish MAG (Tesla) ---
+        self._mag_msg.magnetic_field.x = mx_uT * 1e-6
+        self._mag_msg.magnetic_field.y = my_uT * 1e-6
+        self._mag_msg.magnetic_field.z = mz_uT * 1e-6
+        self.mag_pub.publish(self._mag_msg)
 
-                        if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
-                            self.logger.warning("Accel calibration std dev is high — robot may have been moving during startup.")
+        # --- Fused IMU (/imu/data) ---
+        if self._imu_msg is not None:
+            self._imu_msg.linear_acceleration.x = ax
+            self._imu_msg.linear_acceleration.y = ay
+            self._imu_msg.linear_acceleration.z = az
+            self._imu_msg.angular_velocity.x = gx
+            self._imu_msg.angular_velocity.y = gy
+            self._imu_msg.angular_velocity.z = gz
 
-                        # Mag measurement average vector - heading at startup:
-                        mxm = self._mag_sum[0] / n
-                        mym = self._mag_sum[1] / n
-                        mzm = self._mag_sum[2] / n
+            # Default orientation to "unknown" unless valid
+            if not self._orientation_valid:
+                self._imu_msg.orientation.x = 0.0
+                self._imu_msg.orientation.y = 0.0
+                self._imu_msg.orientation.z = 0.0
+                self._imu_msg.orientation.w = 1.0
+                self._imu_msg.orientation_covariance[0] = -1.0
+                self._imu_msg.orientation_covariance[4] = 0.0
+                self._imu_msg.orientation_covariance[8] = 0.0
 
-                        self._mag_avg_calib = [mxm, mym, mzm]  # cannot be used as bias
-
-                        self.logger.info(
-                            f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
-                        )
-
-                        if not self.raw_only and self.madgwick_use_mag:
-
-                            # use accumulated averages (accel vector and startup mag reference)
-                            # mag vector will be normalized, so units don't matter here (micro Teslas at this point)
-                            rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
-                        
-                            if rpy[0] is None:
-                                self.logger.warn("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
-                            else:
-                                roll, pitch, yaw = rpy
-                                # Check yaw: when facing East, yaw=0; North: +90; South: -90 degrees (https://www.ros.org/reps/rep-0103.html)
-                                self.logger.info(
-                                    "Madgwick init:"
-                                    f" roll={np.degrees(roll): .2f} deg,"
-                                    f" pitch={np.degrees(pitch): .2f} deg,"
-                                    f" yaw={np.degrees(yaw): .2f} deg"
-                                )
-
-                        # reset calibration accumulators; we don’t re-run calibration currently:
-                        self._gyro_sum = [0.0, 0.0, 0.0]
-                        self._gyro_sumsq = [0.0, 0.0, 0.0]
-                        self._accel_sum = [0.0, 0.0, 0.0]
-                        self._accel_sumsq = [0.0, 0.0, 0.0]
-                        self._mag_sum = [0.0, 0.0, 0.0]
-                        self._calib_samples = 0
-                        # -------- End of calculating calibration biases ------------------
-
-                # Always subtract biases once ready
-                if self._calibration_done:
-                    gx -= self._gyro_bias[0]
-                    gy -= self._gyro_bias[1]
-                    gz -= self._gyro_bias[2]
-
-                    ax -= self._accel_bias[0]
-                    ay -= self._accel_bias[1]
-                    az -= self._accel_bias[2]
-                    # That should yield linear_acceleration at rest: ax ≈ 0, ay ≈ 0, az ≈ +G0
-
-                    # Do not subtract mag bias here as we don't have a real hard/soft iron calibration
-
-                # Fill raw message (no orientation)
-                imu_raw_msg.linear_acceleration.x = ax_raw
-                imu_raw_msg.linear_acceleration.y = ay_raw
-                imu_raw_msg.linear_acceleration.z = az_raw
-                imu_raw_msg.angular_velocity.x = gx_raw
-                imu_raw_msg.angular_velocity.y = gy_raw
-                imu_raw_msg.angular_velocity.z = gz_raw
-
-                # Fill mag message (convert to Teslas)
-                mag_msg.magnetic_field.x = mx * 1e-6
-                mag_msg.magnetic_field.y = my * 1e-6
-                mag_msg.magnetic_field.z = mz * 1e-6
-
-                self.imu_raw_pub.publish(imu_raw_msg)
-
-                if not self.raw_only:
-                    # -------- Preparing and calling the filter ------------------
-                    gyroscope = [gx, gy, gz]
-                    accelerometer = [ax, ay, az]
-                    magnetometer = [mx, my, mz]
+            # Run filter after calibration
+            if self._calibration_done:
+                try:
                     self.filter.setSamplePeriod(dt)
 
-                    qx = qy = qz = 0.0
-                    qw = 1.0
+                    self._gyro_vec[0] = gx; self._gyro_vec[1] = gy; self._gyro_vec[2] = gz
+                    self._acc_vec[0]  = ax; self._acc_vec[1]  = ay; self._acc_vec[2]  = az
 
-                    if self._calibration_done:
-                        # ---- Run Madgwick to compute orientation ----
-                        if self.madgwick_use_mag:
-                            self.filter.update(gyroscope, accelerometer, magnetometer)
-                        else:
-                            self.filter.update(gyroscope, accelerometer)
+                    if self.madgwick_use_mag:
+                        self._mag_vec[0] = mx_uT; self._mag_vec[1] = my_uT; self._mag_vec[2] = mz_uT
+                        self.filter.update(self._gyro_vec, self._acc_vec, self._mag_vec)
+                    else:
+                        self.filter.update(self._gyro_vec, self._acc_vec)
 
-                        self._madgwick_updates += 1
-                        if self._madgwick_updates >= 20:
-                            self._orientation_valid = True
+                    self._madgwick_updates += 1
+                    if self._madgwick_updates >= 20:
+                        self._orientation_valid = True
 
                     if self._orientation_valid:
                         qx, qy, qz, qw = self.filter.quaternion_xyzw()
+                        self._imu_msg.orientation.x = qx
+                        self._imu_msg.orientation.y = qy
+                        self._imu_msg.orientation.z = qz
+                        self._imu_msg.orientation.w = qw
+                        self._imu_msg.orientation_covariance[0] = 0.05
+                        self._imu_msg.orientation_covariance[4] = 0.05
+                        self._imu_msg.orientation_covariance[8] = 0.10
+                except Exception as e:
+                    self._orientation_valid = False
+                    self._imu_msg.orientation_covariance[0] = -1.0
+                    self._imu_msg.orientation_covariance[4] = 0.0
+                    self._imu_msg.orientation_covariance[8] = 0.0
+                    self.logger.warning(f"Madgwick update failed: {e}")
 
-                    # Fill fused IMU message: use bias-corrected accel/gyro + add orientation
-                    imu_msg.linear_acceleration.x = ax
-                    imu_msg.linear_acceleration.y = ay
-                    imu_msg.linear_acceleration.z = az
-                    imu_msg.angular_velocity.x = gx
-                    imu_msg.angular_velocity.y = gy
-                    imu_msg.angular_velocity.z = gz
+            self.imu_pub.publish(self._imu_msg)
 
-                    # Always set accel/gyro cov (optional but nice)
-                    imu_msg.linear_acceleration_covariance[0] = 0.10
-                    imu_msg.linear_acceleration_covariance[4] = 0.10
-                    imu_msg.linear_acceleration_covariance[8] = 0.10
-                    imu_msg.angular_velocity_covariance[0] = 0.02
-                    imu_msg.angular_velocity_covariance[4] = 0.02
-                    imu_msg.angular_velocity_covariance[8] = 0.02
-
-                    if self._orientation_valid:
-                        imu_msg.orientation.x = qx
-                        imu_msg.orientation.y = qy
-                        imu_msg.orientation.z = qz
-                        imu_msg.orientation.w = qw
-
-                        # Provide non-negative covariances (tune later)
-                        imu_msg.orientation_covariance[0] = 0.05
-                        imu_msg.orientation_covariance[4] = 0.05
-                        imu_msg.orientation_covariance[8] = 0.10
-                    else:
-                        imu_msg.orientation.x = 0.0
-                        imu_msg.orientation.y = 0.0
-                        imu_msg.orientation.z = 0.0
-                        imu_msg.orientation.w = 1.0
-                        imu_msg.orientation_covariance[0] = -1.0
-
-                    # -------- End of preparing and calling the filter ------------------
-
-                    self.imu_pub.publish(imu_msg)
-
-                # Convert temp raw -> Celsius, see datasheet pp.45,14
-                temp_c = self.imu.tmpRaw / 333.87 + 21.0
-
-                # Accumulate temp for averaging
-                self._temp_sum_c += temp_c
-                self._temp_count += 1
-                publish_temp_now = (self._temp_count % self._temp_div) == 0
-
-                if publish_temp_now:
-                    avg_temp_c = self._temp_sum_c / float(self._temp_count)
-                    temp_msg = sensor_msgs.msg.Temperature()
-                    temp_msg.header.stamp = imu_raw_msg.header.stamp
-                    temp_msg.header.frame_id = self.frame_id
-                    temp_msg.temperature = round(avg_temp_c, 2)
-                    temp_msg.variance = 0.25 # +- 0.5 degrees C squared
-                    self.temp_pub.publish(temp_msg)
-                    # Reset accumulator for next window
-                    self._temp_sum_c = 0.0
-                    self._temp_count = 0
-
-            self.mag_pub.publish(mag_msg)
-
-        except Exception as e:
-            # During shutdown, suppress noise; otherwise log
-            if not self._shutting_down:
-                self.logger.error(f"publish_cback exception: {e}")
+        # --- Temperature averaging/publish ---
+        temp_c = self.imu.tmpRaw / 333.87 + 21.0
+        self._temp_sum_c += temp_c
+        self._temp_count += 1
+        if (self._temp_count % self._temp_div) == 0:
+            avg_temp_c = self._temp_sum_c / float(self._temp_count)
+            self._temp_msg.header.stamp = stamp
+            self._temp_msg.temperature = round(avg_temp_c, 2)
+            self.temp_pub.publish(self._temp_msg)
+            self._temp_sum_c = 0.0
+            self._temp_count = 0
 
     def destroy_node(self):
         self._shutting_down = True
