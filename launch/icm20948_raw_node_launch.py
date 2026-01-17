@@ -27,6 +27,7 @@ def generate_launch_description():
                 # Use "i2cdetect -y 1"
                 "i2c_address": 0x68,
                 "frame_id": "imu_link",
+                "raw_only": True,    # default False ("fusing" mode). When True - only publish raw IMU data - /imu/data_raw and /imu/mag
                 "pub_rate_hz": pub_rate_hz,  # integer, default 50 in code, 200 here
                 "temp_pub_rate_hz": 1.0,     # float, default 1.0
                 "startup_calib_seconds": 3.0,

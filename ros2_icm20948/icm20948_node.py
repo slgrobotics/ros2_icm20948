@@ -26,6 +26,7 @@ class ICM20948Node(Node):
             parameters=[
                 ('i2c_address', 0x68),
                 ('frame_id', 'imu_link'),
+                ('raw_only', False),
                 ('pub_rate_hz', 50),
                 ('temp_pub_rate_hz', 1.0),
                 ('startup_calib_seconds', 3.0),
@@ -45,6 +46,9 @@ class ICM20948Node(Node):
 
         self.frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
         self.logger.info(f"   frame_id: {self.frame_id}")
+
+        self.raw_only = self.get_parameter('raw_only').value
+        self.logger.info(f"   raw_only: {self.raw_only}")
 
         self.pub_rate_hz = self.get_parameter("pub_rate_hz").get_parameter_value().integer_value
         self.logger.info(f"   pub_rate_hz: {self.pub_rate_hz} Hz")
@@ -94,6 +98,8 @@ class ICM20948Node(Node):
         self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)
         if not self.imu.connected:
             self.logger.error("ICM20948 not connected. Check wiring / I2C bus / address.")
+            raise RuntimeError("ICM20948 not connected")
+
         self.imu.begin()
 
         # Choose FSRs, configure the device, and precompute multipliers once.
@@ -122,19 +128,23 @@ class ICM20948Node(Node):
 
         self.pub_clk = self.create_timer(1.0 / float(self.pub_rate_hz), self.publish_cback)
 
-        # Madgwick params
-        self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
-        self.madgwick_use_mag = self.get_parameter("madgwick_use_mag").get_parameter_value().bool_value
-        self.filter = MadgwickAHRS(beta=self.madgwick_beta)
+        if self.raw_only:
+            self.logger.info("   IMU node configured for raw data only; no orientation filter will be used.")
+        else:
+            self.logger.info("   IMU node configured to provide fused orientation data; Madgwick filter used.")
+            # Madgwick params
+            self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
+            self.madgwick_use_mag = self.get_parameter("madgwick_use_mag").get_parameter_value().bool_value
+            self.filter = MadgwickAHRS(beta=self.madgwick_beta)
 
-        self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
-        self.logger.info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
+            self.logger.info(f"   madgwick_beta: {self.madgwick_beta}")
+            self.logger.info(f"   madgwick_use_mag: {self.madgwick_use_mag}")
 
-        # Madgwick-specific variables and publisher:
-        self._orientation_valid = False
-        self._madgwick_updates = 0
-        self._last_stamp = None
-        self.imu_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data", 10)
+            # Madgwick-specific variables and publisher:
+            self._orientation_valid = False
+            self._madgwick_updates = 0
+            self._last_stamp = None
+            self.imu_pub = self.create_publisher(sensor_msgs.msg.Imu, "/imu/data", 10)
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
@@ -175,15 +185,16 @@ class ICM20948Node(Node):
             imu_raw_msg.linear_acceleration_covariance[0] = -1.0
             imu_raw_msg.angular_velocity_covariance[0] = -1.0
 
-            # /imu/data - published only when filter is involved:
-            imu_msg = sensor_msgs.msg.Imu()
-            imu_msg.header.stamp = imu_raw_msg.header.stamp
-            imu_msg.header.frame_id = self.frame_id
+            if not self.raw_only:
+                # /imu/data - published only when filter is involved:
+                imu_msg = sensor_msgs.msg.Imu()
+                imu_msg.header.stamp = imu_raw_msg.header.stamp
+                imu_msg.header.frame_id = self.frame_id
 
-            # covariances for imu_msg will be overwritten when we have fresh data:
-            imu_msg.orientation_covariance[0] = -1.0
-            imu_msg.linear_acceleration_covariance[0] = -1.0
-            imu_msg.angular_velocity_covariance[0] = -1.0
+                # covariances for imu_msg will be overwritten when we have fresh data:
+                imu_msg.orientation_covariance[0] = -1.0
+                imu_msg.linear_acceleration_covariance[0] = -1.0
+                imu_msg.angular_velocity_covariance[0] = -1.0
 
             if self.imu.dataReady():
                 try:
@@ -192,21 +203,23 @@ class ICM20948Node(Node):
                     self.logger.error(str(e))
                     # Publish empty messages with timestamps anyway
                     self.imu_raw_pub.publish(imu_raw_msg)
-                    self.imu_pub.publish(imu_msg)
+                    if not self.raw_only:
+                        self.imu_pub.publish(imu_msg)
                     self.mag_pub.publish(mag_msg)
                     return
 
-                # We have data. Compute dt for filter
-                if self._last_stamp is None:
-                    dt = 1.0 / float(self.pub_rate_hz)
-                else:
-                    dt = (now - self._last_stamp).nanoseconds * 1e-9
-                    # Clamp dt to sane bounds (prevents huge jumps if system pauses)
-                    if dt <= 0.0:
+                if not self.raw_only:
+                    # We have data. Compute dt for filter
+                    if self._last_stamp is None:
                         dt = 1.0 / float(self.pub_rate_hz)
-                    elif dt > 0.2:
-                        dt = 0.2
-                self._last_stamp = now
+                    else:
+                        dt = (now - self._last_stamp).nanoseconds * 1e-9
+                        # Clamp dt to sane bounds (prevents huge jumps if system pauses)
+                        if dt <= 0.0:
+                            dt = 1.0 / float(self.pub_rate_hz)
+                        elif dt > 0.2:
+                            dt = 0.2
+                    self._last_stamp = now
 
                 # ---- Convert raw -> SI units ----
 
@@ -255,7 +268,9 @@ class ICM20948Node(Node):
                     self._calib_samples += 1
 
                     elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
+
                     if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
+                        # -------- Calibration cycle finished, calculate biases ------------------
                         self._calibration_done = True
                         self._madgwick_updates = 0
                         self._orientation_valid = False
@@ -279,7 +294,7 @@ class ICM20948Node(Node):
                         )
 
                         if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
-                            self.logger.warn(
+                            self.logger.warning(
                                 "Gyro calibration std dev is high — robot may have been moving during startup."
                             )
 
@@ -305,7 +320,7 @@ class ICM20948Node(Node):
                         )
 
                         if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
-                            self.logger.warn("Accel calibration std dev is high — robot may have been moving during startup.")
+                            self.logger.warning("Accel calibration std dev is high — robot may have been moving during startup.")
 
                         # Mag measurement average vector - heading at startup:
                         mxm = self._mag_sum[0] / n
@@ -318,7 +333,7 @@ class ICM20948Node(Node):
                             f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
                         )
 
-                        if self.madgwick_use_mag:
+                        if not self.raw_only and self.madgwick_use_mag:
 
                             # use accumulated averages (accel vector and startup mag reference)
                             # mag vector will be normalized, so units don't matter here (micro Teslas at this point)
@@ -336,7 +351,6 @@ class ICM20948Node(Node):
                                     f" yaw={np.degrees(yaw): .2f} deg"
                                 )
 
-
                         # reset calibration accumulators; we don’t re-run calibration currently:
                         self._gyro_sum = [0.0, 0.0, 0.0]
                         self._gyro_sumsq = [0.0, 0.0, 0.0]
@@ -344,6 +358,7 @@ class ICM20948Node(Node):
                         self._accel_sumsq = [0.0, 0.0, 0.0]
                         self._mag_sum = [0.0, 0.0, 0.0]
                         self._calib_samples = 0
+                        # -------- End of calculating calibration biases ------------------
 
                 # Always subtract biases once ready
                 if self._calibration_done:
@@ -371,63 +386,68 @@ class ICM20948Node(Node):
                 mag_msg.magnetic_field.y = my * 1e-6
                 mag_msg.magnetic_field.z = mz * 1e-6
 
-                # -------- Preparing and calling the filter ------------------
-                gyroscope = [gx, gy, gz]
-                accelerometer = [ax, ay, az]
-                magnetometer = [mx, my, mz]
-                self.filter.setSamplePeriod(dt)
+                self.imu_raw_pub.publish(imu_raw_msg)
 
-                qx = qy = qz = 0.0
-                qw = 1.0
+                if not self.raw_only:
+                    # -------- Preparing and calling the filter ------------------
+                    gyroscope = [gx, gy, gz]
+                    accelerometer = [ax, ay, az]
+                    magnetometer = [mx, my, mz]
+                    self.filter.setSamplePeriod(dt)
 
-                if self._calibration_done:
-                    # ---- Run Madgwick to compute orientation ----
-                    if self.madgwick_use_mag:
-                        self.filter.update(gyroscope, accelerometer, magnetometer)
-                    else:
-                        self.filter.update(gyroscope, accelerometer)
+                    qx = qy = qz = 0.0
+                    qw = 1.0
 
-                    self._madgwick_updates += 1
-                    if self._madgwick_updates >= 20:
-                        self._orientation_valid = True
+                    if self._calibration_done:
+                        # ---- Run Madgwick to compute orientation ----
+                        if self.madgwick_use_mag:
+                            self.filter.update(gyroscope, accelerometer, magnetometer)
+                        else:
+                            self.filter.update(gyroscope, accelerometer)
 
-                if self._orientation_valid:
+                        self._madgwick_updates += 1
+                        if self._madgwick_updates >= 20:
+                            self._orientation_valid = True
+
+                    if self._orientation_valid:
                         qx, qy, qz, qw = self.filter.quaternion_xyzw()
 
-                # Fill fused IMU message: use bias-corrected accel/gyro + add orientation
-                imu_msg.linear_acceleration.x = ax
-                imu_msg.linear_acceleration.y = ay
-                imu_msg.linear_acceleration.z = az
-                imu_msg.angular_velocity.x = gx
-                imu_msg.angular_velocity.y = gy
-                imu_msg.angular_velocity.z = gz
+                    # Fill fused IMU message: use bias-corrected accel/gyro + add orientation
+                    imu_msg.linear_acceleration.x = ax
+                    imu_msg.linear_acceleration.y = ay
+                    imu_msg.linear_acceleration.z = az
+                    imu_msg.angular_velocity.x = gx
+                    imu_msg.angular_velocity.y = gy
+                    imu_msg.angular_velocity.z = gz
 
-                # Always set accel/gyro cov (optional but nice)
-                imu_msg.linear_acceleration_covariance[0] = 0.10
-                imu_msg.linear_acceleration_covariance[4] = 0.10
-                imu_msg.linear_acceleration_covariance[8] = 0.10
-                imu_msg.angular_velocity_covariance[0] = 0.02
-                imu_msg.angular_velocity_covariance[4] = 0.02
-                imu_msg.angular_velocity_covariance[8] = 0.02
+                    # Always set accel/gyro cov (optional but nice)
+                    imu_msg.linear_acceleration_covariance[0] = 0.10
+                    imu_msg.linear_acceleration_covariance[4] = 0.10
+                    imu_msg.linear_acceleration_covariance[8] = 0.10
+                    imu_msg.angular_velocity_covariance[0] = 0.02
+                    imu_msg.angular_velocity_covariance[4] = 0.02
+                    imu_msg.angular_velocity_covariance[8] = 0.02
 
-                if self._orientation_valid:
-                    imu_msg.orientation.x = qx
-                    imu_msg.orientation.y = qy
-                    imu_msg.orientation.z = qz
-                    imu_msg.orientation.w = qw
+                    if self._orientation_valid:
+                        imu_msg.orientation.x = qx
+                        imu_msg.orientation.y = qy
+                        imu_msg.orientation.z = qz
+                        imu_msg.orientation.w = qw
 
-                    # Provide non-negative covariances (tune later)
-                    imu_msg.orientation_covariance[0] = 0.05
-                    imu_msg.orientation_covariance[4] = 0.05
-                    imu_msg.orientation_covariance[8] = 0.10
-                else:
-                    imu_msg.orientation.x = 0.0
-                    imu_msg.orientation.y = 0.0
-                    imu_msg.orientation.z = 0.0
-                    imu_msg.orientation.w = 1.0
-                    imu_msg.orientation_covariance[0] = -1.0
+                        # Provide non-negative covariances (tune later)
+                        imu_msg.orientation_covariance[0] = 0.05
+                        imu_msg.orientation_covariance[4] = 0.05
+                        imu_msg.orientation_covariance[8] = 0.10
+                    else:
+                        imu_msg.orientation.x = 0.0
+                        imu_msg.orientation.y = 0.0
+                        imu_msg.orientation.z = 0.0
+                        imu_msg.orientation.w = 1.0
+                        imu_msg.orientation_covariance[0] = -1.0
 
-                # -------- End of preparing and calling the filter ------------------
+                    # -------- End of preparing and calling the filter ------------------
+
+                    self.imu_pub.publish(imu_msg)
 
                 # Convert temp raw -> Celsius, see datasheet pp.45,14
                 temp_c = self.imu.tmpRaw / 333.87 + 21.0
@@ -449,8 +469,6 @@ class ICM20948Node(Node):
                     self._temp_sum_c = 0.0
                     self._temp_count = 0
 
-            self.imu_raw_pub.publish(imu_raw_msg)
-            self.imu_pub.publish(imu_msg)
             self.mag_pub.publish(mag_msg)
 
         except Exception as e:
