@@ -49,7 +49,7 @@ class ICM20948Node(Node):
         self.frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
         self.logger.info(f"   frame_id: {self.frame_id}")
 
-        self.raw_only = self.get_parameter('raw_only').value
+        self.raw_only = self.get_parameter('raw_only').get_parameter_value().bool_value
         self.logger.info(f"   raw_only: {self.raw_only}")
 
         self.pub_rate_hz = self.get_parameter("pub_rate_hz").get_parameter_value().integer_value
@@ -189,6 +189,105 @@ class ICM20948Node(Node):
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
+    # Finalize calibration after startup
+    def _finish_calibration(self, elapsed_s, n):
+        """
+        Finalize startup calibration:
+        - compute gyro bias + stddev (deg/s)
+        - compute accel bias (keep gravity, so at-rest accel ~ +G0 on Z)
+        - store mag average at startup (microtesla)
+        - optionally initialize Madgwick from accel+mag
+        - reset accumulators
+        Inputs:
+        axm..azm : mean accel during calib (m/s^2)
+        mxm..mzm : mean mag during calib (microtesla, with user offset already applied)
+        elapsed_s: calibration duration in seconds
+        n       : number of samples (float)
+        """
+
+        # Means during calibration window
+        axm = self._accel_sum[0] / n
+        aym = self._accel_sum[1] / n
+        azm = self._accel_sum[2] / n
+        mxm = self._mag_sum[0] / n
+        mym = self._mag_sum[1] / n
+        mzm = self._mag_sum[2] / n
+
+        self._calibration_done = True
+        self._madgwick_updates = 0
+        self._orientation_valid = False
+
+        self.logger.info(f"IMU biases calibrated over {elapsed_s:.2f}s - ({int(n)} samples): ")
+
+        # ---- Gyro bias + noise ----
+        bgx = self._gyro_sum[0] / n
+        bgy = self._gyro_sum[1] / n
+        bgz = self._gyro_sum[2] / n
+        self._gyro_bias = [bgx, bgy, bgz]
+
+        g_sx = std_dev_from_sums(self._gyro_sum[0], self._gyro_sumsq[0], n) * 180.0 / math.pi
+        g_sy = std_dev_from_sums(self._gyro_sum[1], self._gyro_sumsq[1], n) * 180.0 / math.pi
+        g_sz = std_dev_from_sums(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
+
+        self.logger.info(
+            f"Gyro  bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
+        )
+        if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
+            self.logger.warning("Gyro calibration std dev is high — robot may have been moving during startup.")
+
+        # ---- Accel bias (expect [0,0,+G0]) ----
+        # Keep gravity: subtract offsets so at-rest accel is ~[0,0,+G0]
+        bax = axm
+        bay = aym
+        baz = azm - G0
+        self._accel_bias = [bax, bay, baz]
+
+        a_sx = std_dev_from_sums(self._accel_sum[0], self._accel_sumsq[0], n)
+        a_sy = std_dev_from_sums(self._accel_sum[1], self._accel_sumsq[1], n)
+        a_sz = std_dev_from_sums(self._accel_sum[2], self._accel_sumsq[2], n)
+
+        self.logger.info(
+            f"Accel bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
+        )
+        if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
+            self.logger.warning("Accel calibration std dev is high — robot may have been moving during startup.")
+
+        # ---- Mag average at startup (microtesla) ----
+        self._mag_avg_calib = [mxm, mym, mzm]
+        self.logger.info(
+            f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
+        )
+
+        # ---- Initialize filter if enabled ----
+        if (not self.raw_only) and self.madgwick_use_mag:
+            try:
+                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
+                if rpy[0] is None:
+                    self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
+                else:
+                    roll, pitch, yaw = rpy
+                    self.logger.info(
+                        "Madgwick init:"
+                        f" roll={np.degrees(roll): .2f} deg,"
+                        f" pitch={np.degrees(pitch): .2f} deg,"
+                        f" yaw={np.degrees(yaw): .2f} deg"
+                    )
+            except Exception as e:
+                self._orientation_valid = False
+                if self._imu_msg is not None:
+                    self._imu_msg.orientation_covariance[0] = -1.0
+                    self._imu_msg.orientation_covariance[4] = 0.0
+                    self._imu_msg.orientation_covariance[8] = 0.0
+                self.logger.warning(f"Madgwick init threw exception: {e}")
+
+        # ---- Reset accumulators (we don't re-run calib currently) ----
+        self._gyro_sum = [0.0, 0.0, 0.0]
+        self._gyro_sumsq = [0.0, 0.0, 0.0]
+        self._accel_sum = [0.0, 0.0, 0.0]
+        self._accel_sumsq = [0.0, 0.0, 0.0]
+        self._mag_sum = [0.0, 0.0, 0.0]
+        self._calib_samples = 0
+
     #
     # callback called at pub_rate_hz:
     #
@@ -279,88 +378,11 @@ class ICM20948Node(Node):
             self._calib_samples += 1
 
             elapsed = (now - self._calib_start_time).nanoseconds * 1e-9
+
             if elapsed >= self.startup_calib_seconds and self._calib_samples > 50:
-                # --- finalize calibration ---
-                self._calibration_done = True
-                self._madgwick_updates = 0
-                self._orientation_valid = False
-
                 n = float(self._calib_samples)
-                self.logger.info(f"IMU biases calibrated over {elapsed:.2f}s - ({int(n)} samples): ")
 
-                # Gyro bias
-                bgx = self._gyro_sum[0] / n
-                bgy = self._gyro_sum[1] / n
-                bgz = self._gyro_sum[2] / n
-                self._gyro_bias = [bgx, bgy, bgz]
-
-                g_sx = std_dev_from_sums(self._gyro_sum[0], self._gyro_sumsq[0], n) * 180.0 / math.pi
-                g_sy = std_dev_from_sums(self._gyro_sum[1], self._gyro_sumsq[1], n) * 180.0 / math.pi
-                g_sz = std_dev_from_sums(self._gyro_sum[2], self._gyro_sumsq[2], n) * 180.0 / math.pi
-
-                self.logger.info(
-                    f"Gyro  bias=[{bgx:.6g}, {bgy:.6g}, {bgz:.6g}] rad/s,  std dev=[{g_sx:.2f}, {g_sy:.2f}, {g_sz:.2f}] deg/s"
-                )
-                if max(g_sx, g_sy, g_sz) > self.gyro_calib_max_std_dps:
-                    self.logger.warning("Gyro calibration std dev is high — robot may have been moving during startup.")
-
-                # Accel bias (expect [0,0,+G0])
-                axm = self._accel_sum[0] / n
-                aym = self._accel_sum[1] / n
-                azm = self._accel_sum[2] / n
-
-                bax = axm
-                bay = aym
-                baz = azm - G0
-                self._accel_bias = [bax, bay, baz]
-
-                a_sx = std_dev_from_sums(self._accel_sum[0], self._accel_sumsq[0], n)
-                a_sy = std_dev_from_sums(self._accel_sum[1], self._accel_sumsq[1], n)
-                a_sz = std_dev_from_sums(self._accel_sum[2], self._accel_sumsq[2], n)
-
-                self.logger.info(
-                    f"Accel bias=[{bax:.4f}, {bay:.4f}, {baz:.4f}] m/s^2, std=[{a_sx:.3f}, {a_sy:.3f}, {a_sz:.3f}] m/s^2"
-                )
-                if max(a_sx, a_sy, a_sz) > self.accel_calib_max_std_mps2:
-                    self.logger.warning("Accel calibration std dev is high — robot may have been moving during startup.")
-
-                # Mag average during calibration
-                mxm = self._mag_sum[0] / n
-                mym = self._mag_sum[1] / n
-                mzm = self._mag_sum[2] / n
-                self._mag_avg_calib = [mxm, mym, mzm]
-                self.logger.info(
-                    f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
-                )
-
-                # Initialize filter if enabled
-                if (not self.raw_only) and self.madgwick_use_mag:
-                    try:
-                        rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
-                        if rpy[0] is None:
-                            self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
-                        else:
-                            roll, pitch, yaw = rpy
-                            self.logger.info(
-                                "Madgwick init:"
-                                f" roll={np.degrees(roll): .2f} deg,"
-                                f" pitch={np.degrees(pitch): .2f} deg,"
-                                f" yaw={np.degrees(yaw): .2f} deg"
-                            )
-                    except Exception as e:
-                        self._orientation_valid = False
-                        self._imu_msg.orientation_covariance[0] = -1.0
-                        self._imu_msg.orientation_covariance[4] = 0.0
-                        self._imu_msg.orientation_covariance[8] = 0.0
-                        self.logger.warning(f"Madgwick init threw exception: {e}")
-
-                # Reset accumulators
-                self._gyro_sum = [0.0, 0.0, 0.0]
-                self._gyro_sumsq = [0.0, 0.0, 0.0]
-                self._accel_sum = [0.0, 0.0, 0.0]
-                self._accel_sumsq = [0.0, 0.0, 0.0]
-                self._mag_sum = [0.0, 0.0, 0.0]
-                self._calib_samples = 0
+                self._finish_calibration(elapsed, n)
 
         # --- Apply biases once calibrated (for fused output + filter input) ---
         if self._calibration_done:
