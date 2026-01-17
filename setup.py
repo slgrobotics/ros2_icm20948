@@ -21,7 +21,11 @@ package_name = "ros2_icm20948"
 setup(
     name=package_name,
     version="0.0.1",
-    packages=[package_name],
+    packages=[
+        package_name,
+        f"{package_name}.i2c",
+        f"{package_name}.filters",
+    ],
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
