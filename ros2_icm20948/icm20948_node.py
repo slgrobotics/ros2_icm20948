@@ -266,7 +266,8 @@ class ICM20948Node(Node):
         # ---- Initialize filter if enabled ----
         if (not self.raw_only) and self.madgwick_use_mag:
             try:
-                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
+                # Swap X/Y magnetometer (mym, mxm) to align with body frame (same as in publish_cback)
+                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mym, mxm, mzm)
                 if rpy[0] is None:
                     self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
                 else:
@@ -442,7 +443,10 @@ class ICM20948Node(Node):
                     self._acc_vec[0]  = ax; self._acc_vec[1]  = ay; self._acc_vec[2]  = az
 
                     if self.madgwick_use_mag:
-                        self._mag_vec[0] = mx_uT; self._mag_vec[1] = my_uT; self._mag_vec[2] = mz_uT
+                        # swap magnetometer X,Y for ENU body frame (same in initialize_from_accel_mag)
+                        self._mag_vec[0] = my_uT   # swap
+                        self._mag_vec[1] = mx_uT   # swap
+                        self._mag_vec[2] = mz_uT
                         self.filter.update(self._gyro_vec, self._acc_vec, self._mag_vec)
                     else:
                         self.filter.update(self._gyro_vec, self._acc_vec)
