@@ -491,8 +491,9 @@ class ICM20948Node(Node):
             )
             # print only when fusion is enabled, and orientation is valid:
             if (not self.raw_only) and self._orientation_valid:
-                q = self.filter.quaternion
-                roll, pitch, yaw = q.to_euler_angles()
+                #q = self.filter.quaternion
+                #roll, pitch, yaw = q.to_euler_angles()
+                roll, pitch, yaw = self.filter.quaternion_rpy()
                 self.logger.info(
                     f"Orientation (deg) roll={math.degrees(roll):.2f}, pitch={math.degrees(pitch):.2f}, yaw={math.degrees(yaw):.2f}"
                 )

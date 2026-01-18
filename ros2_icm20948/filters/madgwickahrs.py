@@ -63,7 +63,7 @@ class MadgwickAHRS:
         if magnetometer is None:
             return self.update_imu(gyroscope, accelerometer)
 
-        q = self.quaternion
+        q = self._quaternion
 
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
@@ -124,7 +124,7 @@ class MadgwickAHRS:
 
         # Integrate to yield quaternion
         q += qdot * self.samplePeriod
-        self.quaternion = Quaternion(q / norm(q))  # normalize quaternion
+        self._quaternion = Quaternion(q / norm(q))  # normalize quaternion
 
     def update_imu(self, gyroscope, accelerometer):
         """
@@ -132,7 +132,7 @@ class MadgwickAHRS:
         :param gyroscope: A three-element array containing the gyroscope data in radians per second.
         :param accelerometer: A three-element array containing the accelerometer data. Can be any unit since a normalized value is used.
         """
-        q = self.quaternion
+        q = self._quaternion
 
         gyroscope = np.array(gyroscope, dtype=float).flatten()
         accelerometer = np.array(accelerometer, dtype=float).flatten()
@@ -174,12 +174,16 @@ class MadgwickAHRS:
 
         # Integrate to yield quaternion
         q += qdot * self.samplePeriod
-        self.quaternion = Quaternion(q / norm(q))  # normalize quaternion
+        self._quaternion = Quaternion(q / norm(q))  # normalize quaternion
 
     def quaternion_xyzw(self):
         # Quaternion: self._q = np.array([w, x, y, z])
         # ROS uses x,y,z,w
-        return (self.quaternion.q[1], self.quaternion.q[2], self.quaternion.q[3], self.quaternion.q[0])
+        return (self._quaternion.q[1], self._quaternion.q[2], self._quaternion.q[3], self._quaternion.q[0])
+
+    def quaternion_rpy(self):
+        # Return roll, pitch, yaw in radians
+        return self._quaternion.to_euler_angles()
 
     @property
     def quaternion(self):
@@ -271,10 +275,10 @@ class MadgwickAHRS:
 
         # Convert rotation matrix (body->world) to quaternion (w,x,y,z)
         q = self._quat_from_rotmat(R_bw)
-        self.quaternion = Quaternion(q[0], q[1], q[2], q[3])
+        self._quaternion = Quaternion(q[0], q[1], q[2], q[3])
 
         # --- return RPY used for initialization ---
-        return self._rpy_from_quaternion(self.quaternion)  # (roll, pitch, yaw) for logging
+        return self._rpy_from_quaternion(self._quaternion)  # (roll, pitch, yaw) for logging
 
     @staticmethod
     def _rpy_from_quaternion(q):

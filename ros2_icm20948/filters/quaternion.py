@@ -85,22 +85,30 @@ class Quaternion:
         return Quaternion(np.cos(rad / 2), x*s, y*s, z*s)
 
     def to_euler_angles(self):
-        pitch = np.arcsin(2 * self[1] * self[2] + 2 * self[0] * self[3])
-        if np.abs(self[1] * self[2] + self[3] * self[0] - 0.5) < 1e-8:
-            roll = 0
-            yaw = 2 * np.arctan2(self[1], self[0])
-        elif np.abs(self[1] * self[2] + self[3] * self[0] + 0.5) < 1e-8:
-            roll = -2 * np.arctan2(self[1], self[0])
-            yaw = 0
-        else:
-            roll = np.arctan2(2 * self[0] * self[1] - 2 * self[2] * self[3], 1 - 2 * self[1] ** 2 - 2 * self[3] ** 2)
-            yaw = np.arctan2(2 * self[0] * self[2] - 2 * self[1] * self[3], 1 - 2 * self[2] ** 2 - 2 * self[3] ** 2)
-        return roll, pitch, yaw
+        """
+        Convert to Euler angles (roll, pitch, yaw) in ENU (East-North-Up) convention.
+        Uses ZYX/321 sequence: roll around X (East), pitch around Y (North), yaw around Z (Up).
+        Returns radians.
+        """
+        w, x, y, z = self._q[0], self._q[1], self._q[2], self._q[3]
+        
+        # Roll (x-axis)
+        sinr_cosp = 2.0 * (w*x + y*z)
+        cosr_cosp = 1.0 - 2.0 * (x*x + y*y)
+        roll = np.arctan2(sinr_cosp, cosr_cosp)
 
-    def to_euler123(self):
-        roll = np.arctan2(-2 * (self[2] * self[3] - self[0] * self[1]), self[0] ** 2 - self[1] ** 2 - self[2] ** 2 + self[3] ** 2)
-        pitch = np.arcsin(2 * (self[1] * self[3] + self[0] * self[2]))
-        yaw = np.arctan2(-2 * (self[1] * self[2] - self[0] * self[3]), self[0] ** 2 + self[1] ** 2 - self[2] ** 2 - self[3] ** 2)
+        # Pitch (y-axis)
+        sinp = 2.0 * (w*y - z*x)
+        if abs(sinp) >= 1.0:
+            pitch = np.sign(sinp) * (np.pi / 2.0)  # gimbal lock
+        else:
+            pitch = np.arcsin(sinp)
+
+        # Yaw (z-axis)
+        siny_cosp = 2.0 * (w*z + x*y)
+        cosy_cosp = 1.0 - 2.0 * (y*y + z*z)
+        yaw = np.arctan2(siny_cosp, cosy_cosp)
+
         return roll, pitch, yaw
 
     def __mul__(self, other):
