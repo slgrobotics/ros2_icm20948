@@ -484,16 +484,18 @@ class ICM20948Node(Node):
             self._temp_sum_c = 0.0
             self._temp_count = 0
 
-        # print only when fusion is enabled, and not too often:
-        if (not self.raw_only) and self.print and publish_temp_now:
+        # print not too often:
+        if self.print and publish_temp_now:
             self.logger.info(
                 f"Mag    [{mx_uT:.4f}, {my_uT:.4f}, {mz_uT:.4f}] micro Tesla"
             )
-            q = self.filter.quaternion
-            roll, pitch, yaw = q.to_euler_angles()
-            self.logger.info(
-                f"Orientation (deg) roll={math.degrees(roll):.2f}, pitch={math.degrees(pitch):.2f}, yaw={math.degrees(yaw):.2f}"
-            )
+            # print only when fusion is enabled, and orientation is valid:
+            if (not self.raw_only) and self._orientation_valid:
+                q = self.filter.quaternion
+                roll, pitch, yaw = q.to_euler_angles()
+                self.logger.info(
+                    f"Orientation (deg) roll={math.degrees(roll):.2f}, pitch={math.degrees(pitch):.2f}, yaw={math.degrees(yaw):.2f}"
+                )
 
     def destroy_node(self):
         self._shutting_down = True
