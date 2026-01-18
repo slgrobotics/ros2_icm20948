@@ -256,6 +256,7 @@ class ICM20948Node(Node):
         self._mag_avg_calib = [mxm, mym, mzm]
         self.logger.info(
             f"Mag    avg=[{mxm:.4f}, {mym:.4f}, {mzm:.4f}] micro Tesla, measurement average during calibration"
+            " (after applying magnetometer_bias parameters)"
         )
 
         # ---- Initialize filter if enabled ----
