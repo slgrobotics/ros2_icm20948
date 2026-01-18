@@ -24,6 +24,7 @@ class ICM20948Node(Node):
         self.declare_parameters(
             namespace='',
             parameters=[
+                ('print', False),
                 ('i2c_address', 0x68),
                 ('frame_id', 'imu_link'),
                 ('raw_only', False),    # When True - only publish raw IMU data - /imu/data_raw and /imu/mag (for imu_tools, without orientation)
@@ -41,6 +42,9 @@ class ICM20948Node(Node):
         self._mag_mul_uT_per_lsb = 0.1499  # microT/LSB (verify vs your mag mode, if you change that)
 
         # Parameters
+        self.print = self.get_parameter('print').get_parameter_value().bool_value
+        self.logger.info(f"   print: {self.print}")
+
         self.i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
         self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X}")
 
@@ -469,13 +473,27 @@ class ICM20948Node(Node):
         temp_c = self.imu.tmpRaw / 333.87 + 21.0
         self._temp_sum_c += temp_c
         self._temp_count += 1
-        if (self._temp_count % self._temp_div) == 0:
+
+        publish_temp_now = (self._temp_count % self._temp_div) == 0
+
+        if publish_temp_now:
             avg_temp_c = self._temp_sum_c / float(self._temp_count)
             self._temp_msg.header.stamp = stamp
             self._temp_msg.temperature = round(avg_temp_c, 2)
             self.temp_pub.publish(self._temp_msg)
             self._temp_sum_c = 0.0
             self._temp_count = 0
+
+        # print only when fusion is enabled, and not too often:
+        if (not self.raw_only) and self.print and publish_temp_now:
+            self.logger.info(
+                f"Mag    [{mx_uT:.4f}, {my_uT:.4f}, {mz_uT:.4f}] micro Tesla"
+            )
+            q = self.filter.quaternion
+            roll, pitch, yaw = q.to_euler_angles()
+            self.logger.info(
+                f"Orientation (deg) roll={math.degrees(roll):.2f}, pitch={math.degrees(pitch):.2f}, yaw={math.degrees(yaw):.2f}"
+            )
 
     def destroy_node(self):
         self._shutting_down = True

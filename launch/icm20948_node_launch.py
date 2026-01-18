@@ -22,6 +22,7 @@ def generate_launch_description():
             executable="icm20948_node",
             name="icm20948_node",
             parameters=[{
+                "print": True,
                 # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
                 # SparkFun address is likely 0x69, generic GY-ICM20948 - 0x68
                 # Use "i2cdetect -y 1"
