@@ -30,7 +30,7 @@ from .quaternion import Quaternion
 
 class MadgwickAHRS:
     samplePeriod = 1/256
-    quaternion = Quaternion(1, 0, 0, 0)
+    _quaternion = Quaternion(1, 0, 0, 0)
     beta = 1  # A beta of 1 rad/s is huge for many consumer IMUs at 100–500 Hz unless your gyro noise is very high
     zeta = 0  # Gyro drift compensation
 
@@ -44,7 +44,7 @@ class MadgwickAHRS:
         :return:
         """
         self.samplePeriod = float(sampleperiod)
-        self.quaternion = Quaternion(1,0,0,0) if quaternion is None else quaternion
+        self._quaternion = Quaternion(1,0,0,0) if quaternion is None else quaternion
         self.beta = float(beta)
         self.zeta = float(zeta)
 
@@ -184,6 +184,10 @@ class MadgwickAHRS:
     @property
     def quaternion(self):
         return self._quaternion
+
+    @quaternion.setter
+    def quaternion(self, value):
+        self._quaternion = value
 
     def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
         """
