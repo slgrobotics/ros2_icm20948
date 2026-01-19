@@ -255,7 +255,10 @@ class MadgwickAHRS:
                 return self.initialize_from_accel_mag(ax, ay, az)
 
             north_b = m_h / mh_norm
-            east_b = np.cross(up_b, north_b)
+            east_b  = np.cross(north_b, up_b)
+            east_b /= norm(east_b)
+            north_b = np.cross(up_b, east_b) # re-orthogonalize north
+            
             e_norm = norm(east_b)
             if e_norm < 1e-12:
                 return None, None, None
