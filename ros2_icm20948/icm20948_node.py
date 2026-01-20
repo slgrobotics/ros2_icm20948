@@ -216,6 +216,24 @@ class ICM20948Node(Node):
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
+    def rotate_mag(self, mx, my, mz):
+        """
+        Rotate magnetometer reading to align with accel+gyro frame.
+        ICM20948 datasheet shows mag axes aligned differently from accel+gyro.
+        This function applies the required rotation.
+        Inputs:
+            mx, my, mz : raw magnetometer readings
+        Returns:
+            mxr, myr, mzr : rotated magnetometer readings
+        """
+        # From ICM20948 datasheet:
+        #   Accel/Gyro: X forward, Y left, Z up
+        #   Mag:        X right, Y forward, Z down
+        mxr =  my
+        myr = -mx
+        mzr = -mz
+        return mxr, myr, mzr
+
     # Finalize calibration after startup
     def _finish_calibration(self, elapsed_s, n):
         """
@@ -290,7 +308,8 @@ class ICM20948Node(Node):
         if (not self.raw_only) and self.madgwick_use_mag:
             try:
                 # flip Y and Z only for the filter input:
-                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mym, mxm, mzm)
+                mxr, myr, mzr = self.rotate_mag(mxm, mym, mzm)
+                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxr, myr, mzr)
                 if rpy[0] is None:
                     self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
                 else:
@@ -471,9 +490,10 @@ class ICM20948Node(Node):
 
                     if self.madgwick_use_mag:
                         # flip Y and Z for the filter input:
-                        self._mag_vec[0] = my_uT
-                        self._mag_vec[1] = mx_uT
-                        self._mag_vec[2] = mz_uT
+                        mxr, myr, mzr = self.rotate_mag(mx_uT, my_uT, mz_uT)
+                        self._mag_vec[0] = mxr
+                        self._mag_vec[1] = myr
+                        self._mag_vec[2] = mzr
                         self.filter.update(self._gyro_vec, self._acc_vec, self._mag_vec)
                     else:
                         self.filter.update(self._gyro_vec, self._acc_vec)
