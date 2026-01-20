@@ -19,7 +19,6 @@ def generate_launch_description():
 
         Node(
             package="ros2_icm20948",
-            #executable="icm20948_raw_node", # obsolete, now use icm20948_node with raw_only=True
             executable="icm20948_node",
             name="icm20948_raw_node",
             parameters=[{

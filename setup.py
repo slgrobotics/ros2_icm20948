@@ -12,7 +12,7 @@ Note: code from the following SparkFun packages is directly included in this pac
 
 All credits and copyrights belong to SparkFun Electronics for these packages.
 
-See https://chatgpt.com/s/t_69543e3e38dc8191a2ba8f6d0fec1126
+See https://github.com/slgrobotics/ros2_icm20948 for more details.
 
 """
 
@@ -37,14 +37,13 @@ setup(
         "smbus2",
     ],
     zip_safe=True,
-    maintainer="Simon-Pierre Deschênes",
-    maintainer_email="simon-pierre.deschenes.1@ulaval.ca",
+    maintainer="Sergei Grichine",
+    maintainer_email="slg@quakemap.com",
     description="Driver for the ICM-20948 IMU",
     license="BSD-2.0",
     entry_points={
         "console_scripts": [
-            "icm20948_node = ros2_icm20948.icm20948_node:main",
-            "icm20948_raw_node = ros2_icm20948.icm20948_raw_node:main",
+            "icm20948_node = ros2_icm20948.icm20948_node:main"
         ],
     },
 )
