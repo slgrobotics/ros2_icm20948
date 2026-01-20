@@ -280,7 +280,8 @@ class ICM20948Node(Node):
         # ---- Initialize filter if enabled ----
         if (not self.raw_only) and self.madgwick_use_mag:
             try:
-                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
+                # flip Y and Z only for the filter input:
+                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mym, mxm, mzm)
                 if rpy[0] is None:
                     self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
                 else:
@@ -354,15 +355,16 @@ class ICM20948Node(Node):
                     dt = 0.2
             self._last_stamp = now
 
-        # --- Convert raw -> SI ---
-        ax_raw = self.imu.axRaw * self._accel_mul
-        ay_raw = self.imu.ayRaw * self._accel_mul
-        az_raw = -self.imu.azRaw * self._accel_mul
+        # --- Convert raw -> SI (REP-103: x fwd, y left, z up) ---
+        ax_raw =  self.imu.axRaw * self._accel_mul
+        ay_raw = -self.imu.ayRaw * self._accel_mul   # <-- flip Y
+        az_raw = -self.imu.azRaw * self._accel_mul   # <-- already flipped Z
 
-        gx_raw = self.imu.gxRaw * self._gyro_mul
-        gy_raw = self.imu.gyRaw * self._gyro_mul
-        gz_raw = -self.imu.gzRaw * self._gyro_mul
+        gx_raw =  self.imu.gxRaw * self._gyro_mul
+        gy_raw = -self.imu.gyRaw * self._gyro_mul    # <-- flip Y
+        gz_raw = -self.imu.gzRaw * self._gyro_mul    # <-- already flipped Z
 
+        # Keep mag axes as-is for publishing:
         mx_uT = self.imu.mxRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[0])
         my_uT = self.imu.myRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[1])
         mz_uT = self.imu.mzRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[2])
@@ -430,6 +432,7 @@ class ICM20948Node(Node):
 
         # --- Fused IMU (/imu/data) ---
         if self._imu_msg is not None:
+            # Fill accel+gyro (bias-corrected):
             self._imu_msg.linear_acceleration.x = ax
             self._imu_msg.linear_acceleration.y = ay
             self._imu_msg.linear_acceleration.z = az
@@ -452,12 +455,14 @@ class ICM20948Node(Node):
                 try:
                     self.filter.setSamplePeriod(dt)
 
+                    # Use bias-corrected accel+gyro values:
                     self._gyro_vec[0] = gx; self._gyro_vec[1] = gy; self._gyro_vec[2] = gz
                     self._acc_vec[0]  = ax; self._acc_vec[1]  = ay; self._acc_vec[2]  = az
 
                     if self.madgwick_use_mag:
-                        self._mag_vec[0] = mx_uT
-                        self._mag_vec[1] = my_uT
+                        # flip Y and Z for the filter input:
+                        self._mag_vec[0] = my_uT
+                        self._mag_vec[1] = mx_uT
                         self._mag_vec[2] = mz_uT
                         self.filter.update(self._gyro_vec, self._acc_vec, self._mag_vec)
                     else:
@@ -476,6 +481,7 @@ class ICM20948Node(Node):
                         self._imu_msg.orientation_covariance[0] = 0.05
                         self._imu_msg.orientation_covariance[4] = 0.05
                         self._imu_msg.orientation_covariance[8] = 0.10
+
                 except Exception as e:
                     self._orientation_valid = False
                     self._imu_msg.orientation_covariance[0] = -1.0
