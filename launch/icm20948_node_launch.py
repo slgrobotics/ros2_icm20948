@@ -26,7 +26,7 @@ def generate_launch_description():
                 # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py
                 # SparkFun address is likely 0x69, generic GY-ICM20948 - 0x68
                 # Use "i2cdetect -y 1"
-                "i2c_address": 0x68,
+                "i2c_address": [0x68, 0x69],  # try both common addresses
                 "frame_id": "imu_link",
                 "raw_only": False,    # default False ("fusing" mode). When True - only publish raw IMU data - /imu/data_raw and /imu/mag
                 "pub_rate_hz": pub_rate_hz,  # integer, default 50 in code, 200 here

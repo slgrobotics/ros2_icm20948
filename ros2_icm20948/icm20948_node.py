@@ -25,7 +25,7 @@ class ICM20948Node(Node):
             namespace='',
             parameters=[
                 ('print', False),
-                ('i2c_address', 0x68),
+                ('i2c_address', [0x68, 0x69]),  # try both common addresses by default
                 ('frame_id', 'imu_link'),
                 ('raw_only', False),    # When True - only publish raw IMU data - /imu/data_raw and /imu/mag (for imu_tools, without orientation)
                 ('pub_rate_hz', 50),
@@ -45,8 +45,28 @@ class ICM20948Node(Node):
         self.print = self.get_parameter('print').get_parameter_value().bool_value
         self.logger.info(f"   print: {self.print}")
 
-        self.i2c_addr = self.get_parameter("i2c_address").get_parameter_value().integer_value
-        self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X}")
+        # Get i2c_address parameter (list of addresses to try)
+        i2c_addresses = self.get_parameter("i2c_address").get_parameter_value().integer_array_value
+        self.logger.info(f"   i2c_addresses to try: {[f'0x{addr:X}' for addr in i2c_addresses]}")
+
+        # Try each address until one connects
+        self.imu = None
+        self.i2c_addr = None
+        for addr in i2c_addresses:
+            try:
+                test_imu = qwiic_icm20948.QwiicIcm20948(address=addr)
+                if test_imu.connected:
+                    self.imu = test_imu
+                    self.i2c_addr = addr
+                    self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X} ✓ (connected)")
+                    break
+            except Exception as e:
+                self.logger.debug(f"   i2c address 0x{addr:X} failed: {e}")
+                continue
+
+        if self.imu is None or not self.imu.connected:
+            self.logger.error("ICM20948 not connected. Check wiring / I2C bus / addresses.")
+            raise RuntimeError("ICM20948 not connected")
 
         # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py 
 
@@ -136,12 +156,6 @@ class ICM20948Node(Node):
             self._imu_msg.angular_velocity_covariance[0] = 0.02
             self._imu_msg.angular_velocity_covariance[4] = 0.02
             self._imu_msg.angular_velocity_covariance[8] = 0.02
-
-        # IMU instance
-        self.imu = qwiic_icm20948.QwiicIcm20948(address=self.i2c_addr)
-        if not self.imu.connected:
-            self.logger.error("ICM20948 not connected. Check wiring / I2C bus / address.")
-            raise RuntimeError("ICM20948 not connected")
 
         self.imu.begin()
 
