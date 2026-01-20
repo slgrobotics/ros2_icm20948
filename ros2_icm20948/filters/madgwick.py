@@ -292,6 +292,33 @@ class MadgwickAHRS:
         # ROS uses x,y,z,w
         return (self.qx, self.qy, self.qz, self.qw)
 
+    def quaternion_rpy(self):
+        """
+        Return roll, pitch, yaw in radians.
+        ENU convention: yaw=0 points East, yaw=π/2 points North.
+        """
+        # Convert quaternion (w, x, y, z) to Euler angles
+        w, x, y, z = self.qw, self.qx, self.qy, self.qz
+        
+        # Roll (x-axis)
+        sinr_cosp = 2.0 * (w*x + y*z)
+        cosr_cosp = 1.0 - 2.0 * (x*x + y*y)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        # Pitch (y-axis)
+        sinp = 2.0 * (w*y - z*x)
+        if abs(sinp) >= 1.0:
+            pitch = math.copysign(math.pi / 2.0, sinp)  # gimbal lock
+        else:
+            pitch = math.asin(sinp)
+
+        # Yaw (z-axis)
+        siny_cosp = 2.0 * (w*z + x*y)
+        cosy_cosp = 1.0 - 2.0 * (y*y + z*z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return roll, pitch, yaw
+
     def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
         """
         Initialize orientation from accel (+ optional mag).
