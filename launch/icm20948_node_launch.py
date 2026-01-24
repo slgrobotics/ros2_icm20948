@@ -31,7 +31,7 @@ def generate_launch_description():
                 "raw_only": False,    # default False ("fusing" mode). When True - only publish raw IMU data - /imu/data_raw and /imu/mag
                 "pub_rate_hz": pub_rate_hz,  # integer, default 50 in code, 200 here
                 "temp_pub_rate_hz": 1.0,     # float, default 1.0
-                "madgwick_beta": 0.01,       # 0.01 for faster settling after rotation
+                "madgwick_beta": 0.1,        # 0.01–0.2 ballpark, weight of correction from accelerometer/magnetometer vs gyroscope
                 "madgwick_use_mag": True,
                 "startup_calib_seconds": 3.0,
                 "gyro_calib_max_std_dps": 2.0,    # warning threshold - if std dev is too high during calibration; default 1.0

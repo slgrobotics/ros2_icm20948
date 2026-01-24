@@ -117,7 +117,7 @@ class MadgwickAHRS:
                 else:
                     mx, my, mz = m
                     # simple disturbance gate: if mag vector is nearly vertical, yaw is ill-conditioned
-                    if abs(mz) > 0.9:
+                    if abs(mz) > 0.95:
                         use_mag = False
 
         qw, qx, qy, qz = self.qw, self.qx, self.qy, self.qz  # initial quaternion (w, x, y, z)

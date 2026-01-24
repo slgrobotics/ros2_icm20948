@@ -149,22 +149,6 @@ class ICM20948Node(Node):
         self._temp_msg.variance = 0.25  # (0.5C)^2
 
         self._imu_msg = None
-        if not self.raw_only:
-            self._imu_msg = sensor_msgs.msg.Imu()
-            self._imu_msg.header.frame_id = self.frame_id
-
-            # Defaults for "unknown"; overwrite when valid
-            self._imu_msg.orientation_covariance[0] = -1.0
-            self._imu_msg.orientation_covariance[4] = 0.0
-            self._imu_msg.orientation_covariance[8] = 0.0
-
-            # Static accel/gyro covariances (tune later)
-            self._imu_msg.linear_acceleration_covariance[0] = 0.10
-            self._imu_msg.linear_acceleration_covariance[4] = 0.10
-            self._imu_msg.linear_acceleration_covariance[8] = 0.10
-            self._imu_msg.angular_velocity_covariance[0] = 0.02
-            self._imu_msg.angular_velocity_covariance[4] = 0.02
-            self._imu_msg.angular_velocity_covariance[8] = 0.02
 
         self.imu.begin()
 
@@ -198,6 +182,23 @@ class ICM20948Node(Node):
             self.logger.info("   IMU node configured for raw data only; no orientation filter will be used.")
         else:
             self.logger.info("   IMU node configured to provide fused orientation data; Madgwick filter used.")
+
+            self._imu_msg = sensor_msgs.msg.Imu()
+            self._imu_msg.header.frame_id = self.frame_id
+
+            # Defaults for "unknown"; overwrite when valid
+            self._imu_msg.orientation_covariance[0] = -1.0
+            self._imu_msg.orientation_covariance[4] = 0.0
+            self._imu_msg.orientation_covariance[8] = 0.0
+
+            # Static accel/gyro covariances (tune later)
+            self._imu_msg.linear_acceleration_covariance[0] = 0.10
+            self._imu_msg.linear_acceleration_covariance[4] = 0.10
+            self._imu_msg.linear_acceleration_covariance[8] = 0.10
+            self._imu_msg.angular_velocity_covariance[0] = 0.02
+            self._imu_msg.angular_velocity_covariance[4] = 0.02
+            self._imu_msg.angular_velocity_covariance[8] = 0.02
+
             # Madgwick params
             self.madgwick_beta = float(self.get_parameter("madgwick_beta").value)
             self.madgwick_use_mag = self.get_parameter("madgwick_use_mag").get_parameter_value().bool_value
