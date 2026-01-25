@@ -58,9 +58,9 @@ class MadgwickAHRS:
         if magnetometer is None:
             use_mag = False
         else:
-            mx = magnetometer[0]
-            my = magnetometer[1]
-            mz = magnetometer[2]
+            mx = magnetometer[1]   # swapped to align with accel/gyro frame as published by ROS node
+            my = -magnetometer[0]
+            mz = -magnetometer[2]
             use_mag = (mx is not None and my is not None and mz is not None)
 
         dt = self.samplePeriod
@@ -329,14 +329,17 @@ class MadgwickAHRS:
 
     def quaternion_rpy_nav(self):
         """
-        Return roll, pitch, yaw in navigation frame.
-        Navigation frame: yaw=0 points North, yaw=π/2 points East (opposite of ENU).
-        Converts from ENU frame by subtracting π/2 from yaw.
+        Return roll, pitch, yaw in radians in standard navigation (aerospace) frame.
+
+        Standard aerospace convention (NED world and FRD body: x forward, y right, z down):
+            +roll: right wing down
+            +pitch: nose up
+            +yaw: nose right
         """
         roll, pitch, yaw_enu = self.quaternion_rpy()
         
         # Convert from ENU (yaw=0 East) to navigation (yaw=0 North)
-        yaw_nav = yaw_enu - math.pi / 2.0
+        yaw_nav = -(yaw_enu - math.pi / 2.0)
         
         # Normalize yaw to [-π, π]
         while yaw_nav > math.pi:
@@ -344,7 +347,7 @@ class MadgwickAHRS:
         while yaw_nav < -math.pi:
             yaw_nav += 2.0 * math.pi
         
-        return roll, pitch, yaw_nav
+        return roll, -pitch, yaw_nav
 
     def initialize_from_accel_mag(self, ax, ay, az, mx=None, my=None, mz=None):
         """
@@ -373,7 +376,7 @@ class MadgwickAHRS:
         yaw = 0.0
         use_mag = (mx is not None and my is not None and mz is not None)
         if use_mag:
-            m = self._normalize3(mx, my, mz)
+            m = self._normalize3(my, mx, mz)   # swapped to align with accel/gyro frame as published by ROS node
             if m is not None:
                 mx, my, mz = m
                 # tilt-compensate mag:

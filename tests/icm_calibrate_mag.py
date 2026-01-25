@@ -2,67 +2,200 @@ from smbus2 import SMBus
 import time
 import signal
 import sys
+import numpy as np
+
 import icm_mag_lib
 
-ICM_ADDR = 0x68  # 0x69 (Adafruit) or 0x68 (generic board)
+ICM_ADDR = 0x69  # 0x69 (Adafruit) or 0x68 (generic board)
 
-def read_magnetometer(bus, offsets):
+# initial values for biases and scales:
+MagBias = np.array([0.0, 0.0, 0.0])
+Mags = np.array([1.0, 1.0, 1.0])      # optional magnetometer scale adjustment
+Magtransform = None  # magnetometer calibration is unknown. A 3x3 matrix, calculated in calibrateMagPrecise()
+MagVals = np.array([0.0, 0.0, 0.0])
+AccelVals = np.array([0.0, 0.0, 9.81])  # assume stationary at start
+roll = 0.0
+pitch = 0.0
+yaw = 0.0
+eps = 1e-9
 
-    print("Calibration finished. Reading magnetometer with applied offsets:")
+def apply_mag_cal(m):
+    # axis remap should happen before this if needed
+    m = np.asarray(m, dtype=float)
+    m_corr = m - MagBias
+    if Magtransform is not None:
+        m_corr = Magtransform @ m_corr
+    m_corr = m_corr * Mags
+    return m_corr
 
-    last = None
-    while True:
+def calibrateMagPrecise(bus, numSamples=1000):
+    """Calibrate Magnetometer Use this method for more precise calculation
+    
+    This function uses ellipsoid fitting to get an estimate of the bias and
+    transformation matrix required for mag data
+
+    Note: Make sure you rotate the sensor in 8 shape and cover all the 
+    pitch and roll angles.
+    """
+
+    global MagBias, Magtransform
+
+    samples = []
+    while len(samples) < numSamples:
         m = icm_mag_lib.read_mag(bus)
-        if m is not None:
-            mx, my, mz = m
-            # Apply Hard-Iron Calibration Offsets (and additional zero-centering offsets in the XY plane):
-            # Calibration Done! Offsets: X=-9.28, Y=-11.93, Z=21.88
-            cmx = mx - offsets[0] # - (-9.28) -6.0
-            cmy = my - offsets[1] # - (-11.93) + 14.0
-            cmz = mz - offsets[2] # - (21.88)
+        if m is None:
+            continue
+        m = np.asarray(m, dtype=float)
+        if not np.all(np.isfinite(m)):
+            continue
+        if np.linalg.norm(m) < eps:
+            continue
+        samples.append(m)
+        if len(samples) % 10 == 0:
+            print(f"Calibration progress: {len(samples)}/{numSamples}", end="\r", flush=True)
+        time.sleep(0.02)
 
-            if last != m:
-                print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
-                last = m
-        time.sleep(1.0)
+    X = np.vstack(samples)
+    centre, evecs, radii, v = __ellipsoid_fit(X)
 
-def calibrate_magnetometer(bus):
+    a, b, c = radii
+    r = (a*b*c) ** (1./3.)
+    Dm = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
+    Magtransform = evecs.dot(Dm).dot(evecs.T)
+    MagBias = centre
+    #MagBias[2] = -MagBias[2]  # change in z bias
 
-    print("Starting Calibration. Rotate sensor in all directions for 30 seconds...")
 
-    mag_min = [9999, 9999, 9999]
-    mag_max = [-9999, -9999, -9999]
+def __ellipsoid_fit(X):
+    x = X[:, 0]
+    y = X[:, 1]
+    z = X[:, 2]
+    D = np.array([x * x + y * y - 2 * z * z,
+                x * x + z * z - 2 * y * y,
+                2 * x * y,
+                2 * x * z,
+                2 * y * z,
+                2 * x,
+                2 * y,
+                2 * z,
+                1 - 0 * x])
+    d2 = np.array(x * x + y * y + z * z).T # rhs for LLSQ
+    u = np.linalg.solve(D.dot(D.T), D.dot(d2))
+    a = np.array([u[0] + 1 * u[1] - 1])
+    b = np.array([u[0] - 2 * u[1] - 1])
+    c = np.array([u[1] - 2 * u[0] - 1])
+    v = np.concatenate([a, b, c, u[2:]], axis=0).flatten()
+    A = np.array([[v[0], v[3], v[4], v[6]],
+                [v[3], v[1], v[5], v[7]],
+                [v[4], v[5], v[2], v[8]],
+                [v[6], v[7], v[8], v[9]]])
 
-    start_time = time.time()
-    while time.time() - start_time < 30:  # Calibrate for 30 seconds
-        m = icm_mag_lib.read_mag(bus)  # Use library read_mag function
-        if m is not None:
-            for i in range(3):
-                if m[i] < mag_min[i]: mag_min[i] = m[i]
-                if m[i] > mag_max[i]: mag_max[i] = m[i]
-        time.sleep(0.05)
+    center = np.linalg.solve(- A[:3, :3], v[6:9])
 
-    # Calculate Hard Iron offsets
-    offsets = [
-        (mag_max[0] + mag_min[0]) / 2,
-        (mag_max[1] + mag_min[1]) / 2,
-        (mag_max[2] + mag_min[2]) / 2
-    ]
+    translation_matrix = np.eye(4)
+    translation_matrix[3, :3] = center.T
 
-    print(f"Calibration Done! Offsets: X={offsets[0]:.2f}, Y={offsets[1]:.2f}, Z={offsets[2]:.2f}")
-    return offsets
+    R = translation_matrix.dot(A).dot(translation_matrix.T)
+
+    evals, evecs = np.linalg.eig(R[:3, :3] / -R[3, 3])
+    evecs = evecs.T
+
+    radii = np.sqrt(1. / np.abs(evals))
+    radii *= np.sign(evals)
+
+    return center, evecs, radii, v
+
+def computeOrientation(mag_vals):
+    """ Computes roll, pitch and yaw
+
+    The function uses accelerometer and magnetometer values
+    to estimate roll, pitch and yaw. These values could be 
+    having some noise, hence look at madgwick filter
+    in filters folder to get a better estimate.
+    
+    """
+
+    global AccelVals, roll, pitch, yaw
+
+    if np.linalg.norm(AccelVals) < eps: return
+    if np.linalg.norm(mag_vals) < eps: return
+
+    roll  = np.arctan2(AccelVals[1], AccelVals[2])
+    pitch = np.arctan2(-AccelVals[0], np.sqrt(AccelVals[1]**2 + AccelVals[2]**2))
+    magLength = np.linalg.norm(mag_vals)
+    if magLength < eps: return
+    normMagVals = mag_vals / magLength
+    yaw = np.arctan2(np.sin(roll)*normMagVals[2] - np.cos(roll)*normMagVals[1],\
+                np.cos(pitch)*normMagVals[0] + np.sin(roll)*np.sin(pitch)*normMagVals[1] \
+                + np.cos(roll)*np.sin(pitch)*normMagVals[2])
+
+    roll = np.degrees(roll)
+    pitch = np.degrees(pitch)
+    yaw = np.degrees(yaw)
+
+
+def read_orientation(bus, count, message=""):
+    """Read and print IMU orientation for specified number of iterations."""
+
+    global MagVals, MagBias, Magtransform, Mags, AccelVals, roll, pitch, yaw
+
+    if message:
+        print(message)
+    
+    for i in range(count):
+
+        #AccelVals = icm_mag_lib.read_accel(bus)   # must exist or add it
+        MagVals   = icm_mag_lib.read_mag(bus)
+        if MagVals is None:
+            print("Mag read failed")
+            continue
+
+        MagVals_c = apply_mag_cal(MagVals)
+
+        computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
+
+        MagVals_uT = MagVals * 1e6  # convert to microTesla
+
+        print(f"MagVals: x={MagVals_uT[0]:8.2f} y={MagVals_uT[1]:8.2f} z={MagVals_uT[2]:8.2f} uT    roll:{roll:8.2f}     pitch:{pitch:8.2f}     yaw:{yaw:8.2f} degrees")
+
+        time.sleep(0.2)
 
 def main():
+
+    global MagVals, MagBias, Magtransform, Mags, roll, pitch, yaw
+
     try:
         with SMBus(1) as bus:
             icm_mag_lib.enable_i2c_master(bus, ICM_ADDR) # Enable Master
             icm_mag_lib.mag_init(bus)          # Init Mag
 
-            # Calibrate magnetometer ("hard-iron" offsets):
-            offsets = calibrate_magnetometer(bus)
+            print("OK: IMU initialized")
 
-            # print it with calibration applied:
-            read_magnetometer(bus, offsets)
+            # Note: Make sure you rotate the sensor in 8 shape and cover all the pitch and roll angles.
+
+            read_orientation(bus, 5, "IP: Reading initial mag values and orientation")
+
+            print("calibrating - rotate the sensor in 8 shape and cover all the pitch and roll angles")
+
+            calibrateMagPrecise(bus)
+
+            print()
+            print()
+            print("\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in Mags) + "],  # should be around 1.0")
+            print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
+            if Magtransform is not None:
+                print("\"magnetometer_transform\": [")
+                for i, row in enumerate(Magtransform):
+                    row_str = ", ".join(f"{x}" for x in row)
+                    if i < len(Magtransform) - 1:
+                        print(f"    {row_str},")
+                    else:
+                        print(f"    {row_str}]")
+            print()
+
+            read_orientation(bus, 10, "IP: Reading mag values and orientation after calibration")
+
+            print("Done")
 
     except Exception as e:
         print(f"I2C Error: {e}")
@@ -74,4 +207,3 @@ signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     main()
-

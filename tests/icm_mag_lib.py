@@ -181,5 +181,5 @@ def read_mag(bus):
         return None  # Magnetic sensor overflow
 
     scale = 0.15 # µT/LSB
-    return (hx * scale, hy * scale, hz * scale)
+    return (hx * scale, hy * scale, hz * scale)  # microTesla
 

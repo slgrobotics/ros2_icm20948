@@ -308,9 +308,7 @@ class ICM20948Node(Node):
         # ---- Initialize filter if enabled ----
         if (not self.raw_only) and self.madgwick_use_mag:
             try:
-                # flip Y and Z only for the filter input:
-                mxr, myr, mzr = self.rotate_mag(mxm, mym, mzm)
-                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxr, myr, mzr)
+                rpy = self.filter.initialize_from_accel_mag(axm, aym, azm, mxm, mym, mzm)
                 if rpy[0] is None:
                     self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
                 else:
@@ -490,11 +488,9 @@ class ICM20948Node(Node):
                     self._acc_vec[0]  = ax; self._acc_vec[1]  = ay; self._acc_vec[2]  = az
 
                     if self.madgwick_use_mag:
-                        # flip Y and Z for the filter input:
-                        mxr, myr, mzr = self.rotate_mag(mx_uT, my_uT, mz_uT)
-                        self._mag_vec[0] = mxr
-                        self._mag_vec[1] = myr
-                        self._mag_vec[2] = mzr
+                        self._mag_vec[0] = mx_uT
+                        self._mag_vec[1] = my_uT
+                        self._mag_vec[2] = mz_uT
                         self.filter.update(self._gyro_vec, self._acc_vec, self._mag_vec)
                     else:
                         self.filter.update(self._gyro_vec, self._acc_vec)
