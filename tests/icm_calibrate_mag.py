@@ -143,22 +143,24 @@ def read_orientation(bus, count, message=""):
         print(message)
     
     for i in range(count):
+        time.sleep(0.2)
+        m = icm_mag_lib.read_mag(bus)
 
-        #AccelVals = icm_mag_lib.read_accel(bus)   # must exist or add it
-        MagVals   = icm_mag_lib.read_mag(bus)
-        if MagVals is None:
+        if m is None:
             print("Mag read failed")
             continue
+
+        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla
+
+        MagVals = MagVals * 1e-6   # Tesla
 
         MagVals_c = apply_mag_cal(MagVals)
 
         computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
 
-        MagVals_uT = MagVals * 1e6  # convert to microTesla
+        MagVals_uT = MagVals * 1e6  # convert to microTesla for printing
 
-        print(f"MagVals: x={MagVals_uT[0]:8.2f} y={MagVals_uT[1]:8.2f} z={MagVals_uT[2]:8.2f} uT    roll:{roll:8.2f}     pitch:{pitch:8.2f}     yaw:{yaw:8.2f} degrees")
-
-        time.sleep(0.2)
+        print(f"MagVals: x={MagVals_uT[0]:8.2f} y={MagVals_uT[1]:8.2f} z={MagVals_uT[2]:8.2f} µT    roll:{roll:8.2f}     pitch:{pitch:8.2f}     yaw:{yaw:8.2f} degrees")
 
 def main():
 
