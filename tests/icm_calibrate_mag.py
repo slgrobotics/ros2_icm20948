@@ -197,7 +197,9 @@ def main():
                         print(f"    {row_str}]")
             print()
 
-            read_orientation(bus, 10, "IP: Reading mag values and orientation after calibration")
+            input("\nCalibration complete. Press Enter to see calibrated values...")
+
+            read_orientation(bus, 10000, "IP: Reading mag values and orientation after calibration")
 
             print("Done")
 
