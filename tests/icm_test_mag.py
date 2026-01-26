@@ -17,16 +17,29 @@ def read_magnetometer(bus):
             mx, my, mz = m
             # Apply calibration bias:
             cmx = mx - magnetometer_bias[0]
-            cmy = my - magnetometer_bias[1]
-            cmz = mz - magnetometer_bias[2]
+            cmy = -(my - magnetometer_bias[1])  # flip Y axis
+            cmz = -(mz - magnetometer_bias[2])  # flip Z axis
 
             # Note: if after applying calibration you rotate the sensor in XY plane
             #       and the values are not centered evenly around zero, apply additional adjustments.
 
             if last != m:
-                print(f"Mag [µT] X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
+                print(f"Mag [µT] Raw: X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
                 last = m
         time.sleep(0.2)
+
+"""
+Rotate the robot in place.
+The published values should roughly conform to the following matrix:
+
+         |   x   |   y   |   z   |
+----------------------------------
+  North  |  20   |   0   |  -40  |
+  East   |   0   |  20   |  -40  |
+  South  | -20   |   0   |  -40  |
+  West   |   0   |  -20  |  -40  |
+----------------------------------
+"""
 
 def main():
     try:
