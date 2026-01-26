@@ -6,17 +6,19 @@ import icm_mag_lib
 
 ICM_ADDRS = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
 
+#magnetometer_bias = [-12.578835747278259, -10.999672868949329, 23.65817527842366]
+magnetometer_bias = [0.0, 0.0, 0.0]
+
 def read_magnetometer(bus):
     last = None
     while True:
         m = icm_mag_lib.read_mag(bus)
         if m is not None:
             mx, my, mz = m
-            # Apply Hard-Iron Calibration Offsets:
-            #       Calibration Done! Offsets: X=-9.28, Y=-11.93, Z=21.88
-            cmx = mx # - (-9.28) -6.0
-            cmy = my # - (-11.93) + 14.0
-            cmz = mz # - (21.88)
+            # Apply calibration bias:
+            cmx = mx - magnetometer_bias[0]
+            cmy = my - magnetometer_bias[1]
+            cmz = mz - magnetometer_bias[2]
 
             # Note: if after applying calibration you rotate the sensor in XY plane
             #       and the values are not centered evenly around zero, apply additional adjustments.
