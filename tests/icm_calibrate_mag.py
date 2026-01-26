@@ -181,7 +181,14 @@ def main():
 
             print("calibrating - rotate the sensor in 8 shape and cover all the pitch and roll angles")
 
+            # Note: initial values for biases and scales as defined globally:
+            #		MagBias = np.array([0.0, 0.0, 0.0])
+            #		Mags = np.array([1.0, 1.0, 1.0])      # optional magnetometer scale adjustment
+            #       Magtransform = None  # magnetometer calibration is unknown. A 3x3 matrix, calculated in calibrateMagPrecise()
+
             calibrateMagPrecise(bus)
+
+            # Here we have the calculated calibration values in imu object. Print them for a ROS2 launch file:
 
             print()
             print()
@@ -199,6 +206,20 @@ def main():
 
             input("\nCalibration complete. Press Enter to see calibrated values...")
 
+            """
+            Rotate the robot in place.
+            The published values should roughly conform to the following matrix:
+
+                    |   x   |   y   |   z   |
+            ----------------------------------
+            North  |  20   |   0   |  -40  |
+            East   |   0   |  20   |  -40  |
+            South  | -20   |   0   |  -40  |
+            West   |   0   |  -20  |  -40  |
+            ----------------------------------
+            """
+
+            # Read and print calibrated values:
             read_orientation(bus, 10000, "IP: Reading mag values and orientation after calibration")
 
             print("Done")
