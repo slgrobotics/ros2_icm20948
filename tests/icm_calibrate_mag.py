@@ -6,7 +6,7 @@ import numpy as np
 
 import icm_mag_lib
 
-ICM_ADDR = 0x69  # 0x69 (Adafruit) or 0x68 (generic board)
+ICM_ADDRS = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
 
 # initial values for biases and scales:
 MagBias = np.array([0.0, 0.0, 0.0])
@@ -168,8 +168,10 @@ def main():
 
     try:
         with SMBus(1) as bus:
-            icm_mag_lib.enable_i2c_master(bus, ICM_ADDR) # Enable Master
-            icm_mag_lib.mag_init(bus)          # Init Mag
+
+            addr = icm_mag_lib.find_icm_address(bus, ICM_ADDRS)
+            if addr is None:
+                raise RuntimeError("No ICM-20948 found on I2C bus")
 
             print("OK: IMU initialized")
 

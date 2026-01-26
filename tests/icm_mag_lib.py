@@ -137,6 +137,17 @@ def slv0_setup_read(bus, dev_addr, start_reg, nbytes):
     write_reg(bus, I2C_SLV0_REG, start_reg)
     write_reg(bus, I2C_SLV0_CTRL, 0x80 | (nbytes & 0x0F))    # enable + length
 
+def find_icm_address(bus, addrs):
+    for addr in addrs:
+        try:
+            enable_i2c_master(bus, addr)
+            mag_init(bus)
+            print(f"ICM-20948 found at 0x{addr:02X}")
+            return addr
+        except Exception as e:
+            print(f"No ICM at 0x{addr:02X}: {e}")
+    return None
+
 def mag_init(bus):
     # Verify Mag ID (WIA2 should be 0x09)
     wia2 = slv4_txn(bus, AK_ADDR, 0x01, read=True) # 0x01 is AK_WIA2
