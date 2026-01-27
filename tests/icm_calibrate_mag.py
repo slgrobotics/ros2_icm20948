@@ -42,7 +42,7 @@ def calibrateMagPrecise(bus, numSamples=1000):
 
     samples = []
     while len(samples) < numSamples:
-        m = icm_mag_lib.read_mag(bus)
+        m = icm_mag_lib.read_mag_enu(bus)
         if m is None:
             continue
         m = np.asarray(m, dtype=float)
@@ -144,7 +144,7 @@ def read_orientation(bus, count, message=""):
     
     for i in range(count):
         time.sleep(0.2)
-        m = icm_mag_lib.read_mag(bus)
+        m = icm_mag_lib.read_mag_enu(bus)
 
         if m is None:
             print("Mag read failed")
@@ -161,6 +161,24 @@ def read_orientation(bus, count, message=""):
         MagVals_uT = MagVals * 1e6  # convert to microTesla for printing
 
         print(f"MagVals: x={MagVals_uT[0]:8.2f} y={MagVals_uT[1]:8.2f} z={MagVals_uT[2]:8.2f} µT    roll:{roll:8.2f}     pitch:{pitch:8.2f}     yaw:{yaw:8.2f} degrees")
+
+def print_calibration():
+
+    print()
+    print("Calibration results: copy this and paste into your ROS2 launch file:")
+    print()
+    print("\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in Mags) + "],  # should be around 1.0")
+    print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
+    if Magtransform is not None:
+        print("\"magnetometer_transform\": [")
+        for i, row in enumerate(Magtransform):
+            row_str = ", ".join(f"{x}" for x in row)
+            if i < len(Magtransform) - 1:
+                print(f"    {row_str},")
+            else:
+                print(f"    {row_str}]")
+    print()
+
 
 def main():
 
@@ -189,34 +207,24 @@ def main():
             calibrateMagPrecise(bus)
 
             # Here we have the calculated calibration values in imu object. Print them for a ROS2 launch file:
-
-            print()
-            print()
-            print("\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in Mags) + "],  # should be around 1.0")
-            print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
-            if Magtransform is not None:
-                print("\"magnetometer_transform\": [")
-                for i, row in enumerate(Magtransform):
-                    row_str = ", ".join(f"{x}" for x in row)
-                    if i < len(Magtransform) - 1:
-                        print(f"    {row_str},")
-                    else:
-                        print(f"    {row_str}]")
-            print()
+            print_calibration()
 
             input("\nCalibration complete. Press Enter to see calibrated values...")
 
             """
+            Run tests/icm_test_mag.py
             Rotate the robot in place.
             The published values should roughly conform to the following matrix:
 
-                    |   x   |   y   |   z   |
-            ----------------------------------
-            North  |  20   |   0   |  -40  |
-            East   |   0   |  20   |  -40  |
-            South  | -20   |   0   |  -40  |
-            West   |   0   |  -20  |  -40  |
-            ----------------------------------
+              ENU    |    x    |    y    |    z    |
+            ----------------------------------------     When robot rotates in place:
+              North  |     0   |   +20   |   -40   |     N -> S  y changes from + to - (x stays the same)
+              East   |   +20   |     0   |   -40   |     E -> W  x changes from + to - (y stays the same)
+              South  |     0   |   -20   |   -40   |     z looks down and doesn't change much
+              West   |   -20   |     0   |   -40   |
+            ----------------------------------------
+            values are in microTesla (µT), Earth's field is about 25 to 65 µT depending on location
+            See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnetic field by location (microTesla, NED frame)
             """
 
             # Read and print calibrated values:
@@ -228,8 +236,10 @@ def main():
         print(f"I2C Error: {e}")
 
 def signal_handler(sig, frame):
+    print_calibration()
     print('\nExiting...')
     sys.exit(0)
+
 signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
