@@ -8,20 +8,28 @@ import icm_mag_lib
 
 ICM_ADDRS = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
 
-# initial values for biases and scales:
-MagBias = np.array([0.0, 0.0, 0.0])
+# initial values for biases and scales - will be updated in calibrateMagPrecise():
+MagBias = np.array([0.0, 0.0, 0.0])   # microTesla, ENU frame
 Mags = np.array([1.0, 1.0, 1.0])      # optional magnetometer scale adjustment
-Magtransform = None  # magnetometer calibration is unknown. A 3x3 matrix, calculated in calibrateMagPrecise()
-MagVals = np.array([0.0, 0.0, 0.0])
-AccelVals = np.array([0.0, 0.0, 9.81])  # assume stationary at start
-roll = 0.0
-pitch = 0.0
-yaw = 0.0
-eps = 1e-9
+Magtransform = None  # magnetometer calibration is unknown initially. A 3x3 matrix, calculated in calibrateMagPrecise()
+
+# current readings:
+MagVals = np.array([0.0, 0.0, 0.0])     # microTesla, ENU frame
+AccelVals = np.array([0.0, 0.0, 9.81])  # assume level and stationary at start
+
+# calculated in computeOrientation():
+roll = None
+pitch = None
+yaw = None
+
+eps = 1e-6  # small number to avoid division by zero in calculations
+min_field_uT = 1.0  # reject near-zero field magnitudes
 
 def apply_mag_cal(m):
-    # axis remap should happen before this if needed
-    m = np.asarray(m, dtype=float)
+    # axis remap should happen before this if needed. We assume ENU frame here.
+    m = np.asarray(m, dtype=float).reshape(3,)
+    if not np.all(np.isfinite(m)):
+        return None  # defensively reject NaNs / bad shapes
     m_corr = m - MagBias
     if Magtransform is not None:
         m_corr = Magtransform @ m_corr
@@ -117,21 +125,39 @@ def computeOrientation(mag_vals):
 
     global AccelVals, roll, pitch, yaw
 
-    if np.linalg.norm(AccelVals) < eps: return
-    if np.linalg.norm(mag_vals) < eps: return
+    roll = pitch = yaw = None
 
-    roll  = np.arctan2(AccelVals[1], AccelVals[2])
-    pitch = np.arctan2(-AccelVals[0], np.sqrt(AccelVals[1]**2 + AccelVals[2]**2))
+    # sanity check:
+    if mag_vals is None:
+        return
+
+    if np.linalg.norm(AccelVals) < eps:
+        return
+
     magLength = np.linalg.norm(mag_vals)
-    if magLength < eps: return
-    normMagVals = mag_vals / magLength
-    yaw = np.arctan2(np.sin(roll)*normMagVals[2] - np.cos(roll)*normMagVals[1],\
-                np.cos(pitch)*normMagVals[0] + np.sin(roll)*np.sin(pitch)*normMagVals[1] \
-                + np.cos(roll)*np.sin(pitch)*normMagVals[2])
+    if magLength < min_field_uT:
+        return
 
-    roll = np.degrees(roll)
-    pitch = np.degrees(pitch)
-    yaw = np.degrees(yaw)
+    # Zeroes as we don't read accel values:
+    roll_r  = np.arctan2(AccelVals[1], AccelVals[2])
+    pitch_r = np.arctan2(-AccelVals[0], np.sqrt(AccelVals[1]**2 + AccelVals[2]**2))
+
+    mx, my, mz = mag_vals / magLength
+
+    # remove roll/pitch from mag to get "level" mag
+    cr, sr = np.cos(roll_r),  np.sin(roll_r)
+    cp, sp = np.cos(pitch_r), np.sin(pitch_r)
+
+    mx2 = mx*cp + mz*sp
+    my2 = mx*sr*sp + my*cr - mz*sr*cp
+
+    # yaw_r = np.arctan2(my2, mx2)  # ENU convention: yaw=0 East, yaw=+90 North (CCW about +Up)
+    yaw_r = np.arctan2(mx2, my2)  # NAV convention yaw: 0=North, +90=East
+
+    roll = np.degrees(roll_r)
+    pitch = np.degrees(pitch_r)
+    yaw = np.degrees(yaw_r)
+    yaw = (yaw + 180.0) % 360.0 - 180.0  # normalize to [-180, +180]
 
 
 def read_orientation(bus, count, message=""):
@@ -150,17 +176,19 @@ def read_orientation(bus, count, message=""):
             print("Mag read failed")
             continue
 
-        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla
+        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla, ENU frame
 
-        MagVals = MagVals * 1e-6   # Tesla
-
-        MagVals_c = apply_mag_cal(MagVals)
+        MagVals_c = apply_mag_cal(MagVals)  # still microTesla, ENU frame, calibrated
+        if MagVals_c is None:
+            print("apply_mag_cal() failed")
+            continue
 
         computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
 
-        MagVals_uT = MagVals * 1e6  # convert to microTesla for printing
-
-        print(f"MagVals: x={MagVals_uT[0]:8.2f} y={MagVals_uT[1]:8.2f} z={MagVals_uT[2]:8.2f} µT    roll:{roll:8.2f}     pitch:{pitch:8.2f}     yaw:{yaw:8.2f} degrees")
+        if roll is None:
+            print(f"MagVals (ENU frame): x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation invalid (insufficient accel/mag)")
+        else:
+            print(f"MagVals (ENU frame): x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation: roll:{roll:8.2f}   pitch:{pitch:8.2f}   yaw:{yaw:8.2f} degrees (Nav convention: 0=North, +90=East)")
 
 def print_calibration():
 
@@ -217,11 +245,11 @@ def main():
             The published values should roughly conform to the following matrix:
 
               ENU    |    x    |    y    |    z    |
-            ----------------------------------------     When robot rotates in place:
+            ----------------------------------------   When robot rotates in place:
               North  |     0   |   +20   |   -40   |     N -> S  y changes from + to - (x stays the same)
               East   |   +20   |     0   |   -40   |     E -> W  x changes from + to - (y stays the same)
-              South  |     0   |   -20   |   -40   |     z looks down and doesn't change much
-              West   |   -20   |     0   |   -40   |
+              South  |     0   |   -20   |   -40   |     z axis is Up; Earth field in the US typically has negative z (points down into Earth)
+              West   |   -20   |     0   |   -40   |     z shouldn't change much
             ----------------------------------------
             values are in microTesla (µT), Earth's field is about 25 to 65 µT depending on location
             See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnetic field by location (microTesla, NED frame)

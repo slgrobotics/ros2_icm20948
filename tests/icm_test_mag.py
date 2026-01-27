@@ -33,11 +33,11 @@ Rotate the robot in place.
 The published values should roughly conform to the following matrix:
 
   ENU    |    x    |    y    |    z    |
-----------------------------------------     When robot rotates in place:
+----------------------------------------   When robot rotates in place:
   North  |     0   |   +20   |   -40   |     N -> S  y changes from + to - (x stays the same)
   East   |   +20   |     0   |   -40   |     E -> W  x changes from + to - (y stays the same)
-  South  |     0   |   -20   |   -40   |     z looks down and doesn't change much
-  West   |   -20   |     0   |   -40   |
+  South  |     0   |   -20   |   -40   |     z axis is Up; Earth field in the US typically has negative z (points down into Earth)
+  West   |   -20   |     0   |   -40   |     z shouldn't change much
 ----------------------------------------
 values are in microTesla (µT), Earth's field is about 25 to 65 µT depending on location
 See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnetic field by location (microTesla, NED frame)
