@@ -48,8 +48,6 @@ class ICM20948Node(Node):
             ]
         )
 
-        self._mag_mul_uT_per_lsb = 0.1499  # microT/LSB (verify vs your mag mode, if you change that)
-
         # Parameters
         self.print = self.get_parameter('print').get_parameter_value().bool_value
         self.logger.info(f"   print: {self.print}")
@@ -217,24 +215,6 @@ class ICM20948Node(Node):
 
         self.logger.info("OK: ICM20948 Node: init successful")
 
-    def rotate_mag(self, mx, my, mz):
-        """
-        Rotate magnetometer reading to align with accel+gyro frame.
-        ICM20948 datasheet shows mag axes aligned differently from accel+gyro.
-        This function applies the required rotation.
-        Inputs:
-            mx, my, mz : raw magnetometer readings
-        Returns:
-            mxr, myr, mzr : rotated magnetometer readings
-        """
-        # From ICM20948 datasheet:
-        #   Accel/Gyro: X forward, Y left, Z up
-        #   Mag:        X right, Y forward, Z down
-        mxr =  my
-        myr = -mx
-        mzr = -mz
-        return mxr, myr, mzr
-
     # Finalize calibration after startup
     def _finish_calibration(self, elapsed_s, n):
         """
@@ -362,6 +342,10 @@ class ICM20948Node(Node):
             self.logger.error(f"ICM20948 getAgmt() failed: {e}")
             return
 
+        if self.imu.mxRaw is None or self.imu.myRaw is None or self.imu.mzRaw is None:
+            self.logger.error("ICM20948 magnetometer data is None")
+            return
+
         stamp = now.to_msg()
 
         # Update headers (stamp changes every tick)
@@ -383,19 +367,20 @@ class ICM20948Node(Node):
                     dt = 0.2
             self._last_stamp = now
 
-        # --- Convert raw -> SI (REP-103: x fwd, y left, z up) ---
-        ax_raw =  self.imu.axRaw * self._accel_mul
-        ay_raw = -self.imu.ayRaw * self._accel_mul   # <-- flip Y
-        az_raw = -self.imu.azRaw * self._accel_mul   # <-- already flipped Z
+        # --- Convert raw -> SI (already in REP-103 ENU: x fwd, y left, z up) ---
+        ax_raw = self.imu.axRaw * self._accel_mul
+        ay_raw = self.imu.ayRaw * self._accel_mul
+        az_raw = self.imu.azRaw * self._accel_mul
 
-        gx_raw =  self.imu.gxRaw * self._gyro_mul
-        gy_raw = -self.imu.gyRaw * self._gyro_mul    # <-- flip Y
-        gz_raw = -self.imu.gzRaw * self._gyro_mul    # <-- already flipped Z
+        gx_raw = self.imu.gxRaw * self._gyro_mul
+        gy_raw = self.imu.gyRaw * self._gyro_mul
+        gz_raw = self.imu.gzRaw * self._gyro_mul
 
-        # Keep mag axes as-is for publishing:
-        mx_uT = self.imu.mxRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[0])
-        my_uT = self.imu.myRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[1])
-        mz_uT = self.imu.mzRaw * self._mag_mul_uT_per_lsb - float(self.mag_offset_uT[2])
+        # The self.imu.getAgmt() delivers "raw" magnetometer data in microTesla, in ENU frame, not calibrated.
+        # Apply user mag offset (calibration parameter "magnetometer_bias", ENU, in microtesla):
+        mx_uT = self.imu.mxRaw - float(self.mag_offset_uT[0])
+        my_uT = self.imu.myRaw - float(self.mag_offset_uT[1])
+        mz_uT = self.imu.mzRaw - float(self.mag_offset_uT[2])
 
         # Start with bias-corrected equal to raw
         ax, ay, az = ax_raw, ay_raw, az_raw

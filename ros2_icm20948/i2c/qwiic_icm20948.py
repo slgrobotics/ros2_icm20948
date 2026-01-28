@@ -311,6 +311,8 @@ class QwiicIcm20948(object):
 	M_REG_TS1 = 						0x33
 	M_REG_TS2 = 						0x34
 
+	SLV0_LEN =                             9  # Number of bytes to read from Mag when configured as I2C Master Slave 0
+
 	# Constructor
 	def __init__(self, address=None, i2c_driver=None):
 
@@ -326,6 +328,8 @@ class QwiicIcm20948(object):
 				return
 		else:
 			self._i2c = i2c_driver
+
+		self.mxRaw = self.myRaw = self.mzRaw = None
 
 	# ----------------------------------
 	# isConnected()
@@ -649,79 +653,60 @@ class QwiicIcm20948(object):
 	# getAgmt()
 	#
 	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
+	# Ensures that all values are reported in the ENU body reference frame
+	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
+	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
+	#
 	def getAgmt(self):
-		"""!
-		Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
-
-		@return **bool** Returns True if I2C readBlock was successful, otherwise False.
-		"""
-
-		# here is an optimized version: using struct unpacking
-		numbytes = 23 # 14 (Accel/Gyro/Temp) + 9 (Mag)
+		"""Read accel/gyro/temp (BE) and mag (LE) from the ICM20948 burst block."""
+		numbytes = 23
 		self.setBank(0)
-		buff = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
 
-		# Convert list to bytes
-		buff_bytes = bytes(buff)
-
-		# 1. Unpack Big-Endian data (Accel, Gyro, Temp)
-		# >: Big-Endian, h: signed 16-bit (7 of them)
-		(self.axRaw, self.ayRaw, self.azRaw,
-		self.gxRaw, self.gyRaw, self.gzRaw,
-		self.tmpRaw) = struct.unpack('>hhhhhhh', buff_bytes[:14])
-
-		# 2. Extract Mag Status and Unpack Little-Endian Mag data
-		self.magStat1 = buff[14]
-
-		# <: Little-Endian, h: signed 16-bit (3 of them)
-		# Start at index 15, read 6 bytes
-		(self.mxRaw, self.myRaw, self.mzRaw) = struct.unpack('<hhh', buff_bytes[15:21])
-
-		self.magStat2 = buff[22]
-
-		"""
-		# Read all of the readings starting at AGB0_REG_ACCEL_XOUT_H
-		numbytes = 14 + 9 # Read Accel, gyro, temp, and 9 bytes of mag
-		self.setBank(0)
-		buff = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
-
-		self.axRaw = ((buff[0] << 8) | (buff[1] & 0xFF))
-		self.ayRaw = ((buff[2] << 8) | (buff[3] & 0xFF))
-		self.azRaw = ((buff[4] << 8) | (buff[5] & 0xFF))
-
-		self.gxRaw = ((buff[6] << 8) | (buff[7] & 0xFF))
-		self.gyRaw = ((buff[8] << 8) | (buff[9] & 0xFF))
-		self.gzRaw = ((buff[10] << 8) | (buff[11] & 0xFF))
-
-		self.tmpRaw = ((buff[12] << 8) | (buff[13] & 0xFF))
-
-		self.magStat1 = buff[14]
-		self.mxRaw = ((buff[16] << 8) | (buff[15] & 0xFF)) # Mag data is read little endian
-		self.myRaw = ((buff[18] << 8) | (buff[17] & 0xFF))
-		self.mzRaw = ((buff[20] << 8) | (buff[19] & 0xFF))
-		self.magStat2 = buff[22]
-
-		# Convert all values to signed (because python treats all ints as 32 bit ints 
-		# and does not see the MSB as the sign of our 16 bit int raw value)
-		self.axRaw = self.ToSignedInt(self.axRaw)
-		self.ayRaw = self.ToSignedInt(self.ayRaw)
-		self.azRaw = self.ToSignedInt(self.azRaw)
-
-		self.gxRaw = self.ToSignedInt(self.gxRaw)
-		self.gyRaw = self.ToSignedInt(self.gyRaw)
-		self.gzRaw = self.ToSignedInt(self.gzRaw)
-
-		self.mxRaw = self.ToSignedInt(self.mxRaw)
-		self.myRaw = self.ToSignedInt(self.myRaw)
-		self.mzRaw = self.ToSignedInt(self.mzRaw)
-		"""
-
-		# check for data read error
-		if buff:
-			return True
-		else:
+		raw = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
+		if not raw or len(raw) != numbytes:
 			return False
 
+		b = bytes(raw)
+
+		# raw accel and gyro reads:
+		(ax, ay, az, gx, gy, gz, self.tmpRaw) = struct.unpack('>hhhhhhh', b[:14])
+
+		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
+
+		# convert to ENU body frame (still type int)
+		self.axRaw = -ax  # Nose up (front rises): ax decreases (goes negative)
+		self.ayRaw = ay   # Left side up (roll right wing down): ay decreases (goes negative)
+		self.azRaw = -az  # az ≈ +9.81 m/s² (because +Z is up, and the accelerometer senses “upward support force” when sitting still)
+
+		self.gxRaw = -gx  # Roll left (left side goes down / right side goes up): gx positive
+		self.gyRaw = gy   # Rotate nose up (front rising, like “pulling up”): gy positive
+		self.gzRaw = -gz  # Turn left (CCW): gz positive
+
+		# Note: we leave accelerometer and gyro values as raw reads (int) here.
+		# Conversion to physical units is done in higher-level code.
+		# But we make sure that all returns are in ENU body reference frame (+X forward, +Y left, +Z Up).
+
+		self.magStat1 = b[14]
+		mag_ready = (self.magStat1 & 0x01) != 0
+		if not mag_ready:
+			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
+
+		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
+		# dummy = b[21]  # Dummy byte should look "random-ish". Will be ST2 if ever SLV0_LEN=8
+		self.magStat2 = b[22]  # ST2 should almost always have bit0=0 and bit3 rarely=1 (overflow).
+
+		mag_overflow = (self.magStat2 & 0x08) != 0
+		if mag_overflow:
+			return True  # keep previous mag; this sample invalid
+
+		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
+
+		scale_uT_per_lsb = 0.15
+		self.mxRaw = hy * scale_uT_per_lsb
+		self.myRaw = hx * scale_uT_per_lsb
+		self.mzRaw = hz * scale_uT_per_lsb  # µT, output is ENU world frame: +X East,  +Y North, +Z Up
+
+		return True
 
 	# ----------------------------------
 	# i2cMasterPassthrough()
@@ -994,7 +979,7 @@ class QwiicIcm20948(object):
 		mag_reg_ctrl2 |= AK09916_mode_cont_100hz
 		self.writeMag(AK09916_REG_CNTL2, mag_reg_ctrl2)
 
-		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, 9, True, True, False, False, False)
+		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, self.SLV0_LEN, True, True, False, False, False)
 
 	# ----------------------------------
 	# begin()
