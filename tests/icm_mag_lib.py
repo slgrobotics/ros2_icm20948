@@ -173,8 +173,8 @@ def mag_init(bus):
     slv0_setup_read(bus, AK_ADDR, AK_ST1, 9)
     return True
 
-# Read magnetometer data in NED frame (X North, Y East, Z down)
-def read_mag_ned(bus):
+
+def read_mag(bus):
     set_bank(bus, 0)
     # Read 9 bytes if slv0_setup_read was set to 9
     data = read_block(bus, EXT_SENS_DATA_00, 9)
@@ -192,12 +192,5 @@ def read_mag_ned(bus):
         return None  # Magnetic sensor overflow
 
     scale = 0.15 # µT/LSB
-    return (hx * scale, hy * scale, hz * -scale)  # microTesla, had to flip Z for NED
+    return (hx * scale, hy * scale, hz * scale)  # microTesla
 
-# Read magnetometer data in ENU frame (X East, Y North, Z Up)
-def read_mag_enu(bus):
-    m = read_mag_ned(bus)
-    if m is None:
-        return None
-    mx, my, mz = m
-    return (my, mx, -mz)  # microTesla, switch X and Y, flip Z for NED -> ENU
