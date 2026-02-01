@@ -9,12 +9,12 @@ import icm_mag_lib
 ICM_ADDRS = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
 
 # initial values for biases and scales - will be updated in calibrateMagPrecise():
-MagBias = np.array([0.0, 0.0, 0.0])   # microTesla, ENU frame
+MagBias = np.array([0.0, 0.0, 0.0])   # microTesla, aligned with accel/gyro frame as published by ROS node
 MagScale = np.array([1.0, 1.0, 1.0])  # should be 1.0 or omitted if "magnetometer_transform" is present
 Magtransform = np.eye(3)  # magnetometer calibration is unknown initially. A 3x3 matrix, calculated in calibrateMagPrecise()
 
 # current readings:
-MagVals = np.array([0.0, 0.0, 0.0])     # microTesla, ENU frame
+MagVals = np.array([0.0, 0.0, 0.0])     # microTesla, aligned with accel/gyro frame as published by ROS node
 AccelVals = np.array([0.0, 0.0, 9.81])  # assume level and stationary at start
 
 # calculated in computeOrientation():
@@ -26,7 +26,7 @@ eps = 1e-6  # small number to avoid division by zero in calculations
 min_field_uT = 1.0  # reject near-zero field magnitudes
 
 def apply_mag_cal(m):
-    # axis remap should happen before this if needed. We assume ENU frame here.
+    # aligned with accel/gyro frame as published by ROS node
     m = np.asarray(m, dtype=float).reshape(3,)
     if not np.all(np.isfinite(m)):
         return None  # defensively reject NaNs / bad shapes
@@ -179,9 +179,9 @@ def read_orientation(bus, count, message=""):
             print("Mag read failed")
             continue
 
-        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla, ENU frame
+        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla, aligned with accel/gyro frame as published by ROS node
 
-        MagVals_c = apply_mag_cal(MagVals)  # still microTesla, ENU frame, calibrated
+        MagVals_c = apply_mag_cal(MagVals)  # still microTesla, same frame, calibrated
         if MagVals_c is None:
             print("apply_mag_cal() failed")
             continue
@@ -189,9 +189,9 @@ def read_orientation(bus, count, message=""):
         computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
 
         if roll is None:
-            print(f"MagVals (ENU frame): x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation invalid (insufficient accel/mag)")
+            print(f"MagVals: x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation invalid (insufficient accel/mag)")
         else:
-            print(f"MagVals (ENU frame): x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation: roll:{roll:8.2f}   pitch:{pitch:8.2f}   yaw:{yaw:8.2f} degrees (Nav convention: 0=North, +90=East)")
+            print(f"MagVals: x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation: roll:{roll:8.2f}   pitch:{pitch:8.2f}   yaw:{yaw:8.2f} degrees (Nav convention: 0=North, +90=East)")
 
 def print_calibration():
 
@@ -265,10 +265,10 @@ def main():
 
               ENU    |    x    |    y    |    z    |
             ----------------------------------------   When robot rotates in place:
-              North  |     0   |   +20   |   -40   |     N -> S  y changes from + to - (x stays the same)
-              East   |   +20   |     0   |   -40   |     E -> W  x changes from + to - (y stays the same)
-              South  |     0   |   -20   |   -40   |     z axis is Up; Earth field in the US typically has negative z (points down into Earth)
-              West   |   -20   |     0   |   -40   |     z shouldn't change much
+              North  |   +20   |     0   |   -40   |     N -> S  x changes from + to - (y stays the same around 0)
+              East   |     0   |   +20   |   -40   |     E -> W  y changes from + to - (x stays the same around 0)
+              South  |   -20   |     0   |   -40   |     z axis is Up; Earth field in the US typically has negative z (points down into Earth)
+              West   |     0   |   -20   |   -40   |     z shouldn't change much
             ----------------------------------------
             values are in microTesla (µT), Earth's field is about 25 to 65 µT depending on location
             See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnetic field by location (microTesla, NED frame)
