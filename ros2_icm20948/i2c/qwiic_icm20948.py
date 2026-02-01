@@ -673,7 +673,7 @@ class QwiicIcm20948(object):
 
 		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
 
-		# convert to ENU body frame (still type int)
+		# convert to Mag body frame (still type int)
 		self.axRaw = -ax  # Nose up (front rises): ax decreases (goes negative)
 		self.ayRaw = ay   # Left side up (roll right wing down): ay decreases (goes negative)
 		self.azRaw = -az  # az ≈ +9.81 m/s² (because +Z is up, and the accelerometer senses “upward support force” when sitting still)
