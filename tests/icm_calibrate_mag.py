@@ -10,8 +10,8 @@ ICM_ADDRS = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
 
 # initial values for biases and scales - will be updated in calibrateMagPrecise():
 MagBias = np.array([0.0, 0.0, 0.0])   # microTesla, ENU frame
-Mags = np.array([1.0, 1.0, 1.0])      # optional magnetometer scale adjustment
-Magtransform = None  # magnetometer calibration is unknown initially. A 3x3 matrix, calculated in calibrateMagPrecise()
+MagScale = np.array([1.0, 1.0, 1.0])  # should be 1.0 or omitted if "magnetometer_transform" is present
+Magtransform = np.eye(3)  # magnetometer calibration is unknown initially. A 3x3 matrix, calculated in calibrateMagPrecise()
 
 # current readings:
 MagVals = np.array([0.0, 0.0, 0.0])     # microTesla, ENU frame
@@ -31,9 +31,8 @@ def apply_mag_cal(m):
     if not np.all(np.isfinite(m)):
         return None  # defensively reject NaNs / bad shapes
     m_corr = m - MagBias
-    if Magtransform is not None:
-        m_corr = Magtransform @ m_corr
-    m_corr = m_corr * Mags
+    m_corr = Magtransform @ m_corr
+    m_corr = m_corr * MagScale
     return m_corr
 
 def calibrateMagPrecise(bus, numSamples=1000):
@@ -47,6 +46,10 @@ def calibrateMagPrecise(bus, numSamples=1000):
     """
 
     global MagBias, Magtransform
+
+    # make sure we are not applying calibration in readSensor():
+    MagBias[:] = 0.0
+    Magtransform = np.eye(3)
 
     samples = []
     while len(samples) < numSamples:
@@ -67,12 +70,10 @@ def calibrateMagPrecise(bus, numSamples=1000):
     centre, evecs, radii, v = __ellipsoid_fit(X)
 
     a, b, c = radii
-    r = (a*b*c) ** (1./3.)
-    Dm = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
-    Magtransform = evecs.dot(Dm).dot(evecs.T)
+    r = (a * b * c) ** (1. / 3.)
+    D = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
+    Magtransform = evecs.dot(D).dot(evecs.T)
     MagBias = centre
-    #MagBias[2] = -MagBias[2]  # change in z bias
-
 
 def __ellipsoid_fit(X):
     x = X[:, 0]
@@ -88,7 +89,8 @@ def __ellipsoid_fit(X):
                 2 * z,
                 1 - 0 * x])
     d2 = np.array(x * x + y * y + z * z).T # rhs for LLSQ
-    u = np.linalg.solve(D.dot(D.T), D.dot(d2))
+    M = D.dot(D.T)
+    u = np.linalg.solve(M + 1e-9*np.eye(M.shape[0]), D.dot(d2))
     a = np.array([u[0] + 1 * u[1] - 1])
     b = np.array([u[0] - 2 * u[1] - 1])
     c = np.array([u[1] - 2 * u[0] - 1])
@@ -101,15 +103,16 @@ def __ellipsoid_fit(X):
     center = np.linalg.solve(- A[:3, :3], v[6:9])
 
     translation_matrix = np.eye(4)
-    translation_matrix[3, :3] = center.T
+    translation_matrix[:3, 3] = center
 
     R = translation_matrix.dot(A).dot(translation_matrix.T)
 
-    evals, evecs = np.linalg.eig(R[:3, :3] / -R[3, 3])
+    S = R[:3, :3] / -R[3, 3]
+    S = 0.5*(S + S.T)
+    evals, evecs = np.linalg.eigh(S)
     evecs = evecs.T
 
-    radii = np.sqrt(1. / np.abs(evals))
-    radii *= np.sign(evals)
+    radii = np.sqrt(1.0 / np.abs(evals))
 
     return center, evecs, radii, v
 
@@ -163,7 +166,7 @@ def computeOrientation(mag_vals):
 def read_orientation(bus, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
 
-    global MagVals, MagBias, Magtransform, Mags, AccelVals, roll, pitch, yaw
+    global MagVals, MagBias, MagScale, Magtransform, AccelVals, roll, pitch, yaw
 
     if message:
         print(message)
@@ -192,10 +195,11 @@ def read_orientation(bus, count, message=""):
 
 def print_calibration():
 
+    print("--------------------------------------------------------------------------------")
     print()
-    print("Calibration results: copy this and paste into your ROS2 launch file:")
+    print("---- Calibration results: copy this and paste into your ROS2 launch file:")
     print()
-    print("\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in Mags) + "],  # should be around 1.0")
+    print("#\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in MagScale) + "],  # should be 1.0 or omitted if \"magnetometer_transform\" is present")
     print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
     if Magtransform is not None:
         print("\"magnetometer_transform\": [")
@@ -204,13 +208,28 @@ def print_calibration():
             if i < len(Magtransform) - 1:
                 print(f"    {row_str},")
             else:
-                print(f"    {row_str}]")
+                print(f"    {row_str}],")
     print()
+    print("---- Calibration results in Python for direct assignment (e.g. into read_mag.py)")
+    print()
+    # MagBias
+    bias_str = ", ".join(f"{v:.16e}" for v in MagBias)
+    print(f"MagBias = np.array([{bias_str}])")
 
+    # Magtransform
+    print("Magtransform = np.array([")
+    for i, row in enumerate(Magtransform):
+        row_str = ", ".join(f"{v:.16e}" for v in row)
+        if i < len(Magtransform) - 1:
+            print(f"    [{row_str}],")
+        else:
+            print(f"    [{row_str}]")
+    print("])")
+    print("--------------------------------------------------------------------------------")
 
 def main():
 
-    global MagVals, MagBias, Magtransform, Mags, roll, pitch, yaw
+    global MagVals, MagBias, MagScale, Magtransform, roll, pitch, yaw
 
     try:
         with SMBus(1) as bus:
@@ -229,8 +248,8 @@ def main():
 
             # Note: initial values for biases and scales as defined globally:
             #		MagBias = np.array([0.0, 0.0, 0.0])
-            #		Mags = np.array([1.0, 1.0, 1.0])      # optional magnetometer scale adjustment
-            #       Magtransform = None  # magnetometer calibration is unknown. A 3x3 matrix, calculated in calibrateMagPrecise()
+            #		MagScale = np.array([1.0, 1.0, 1.0])  # should be 1.0 or omitted if "magnetometer_transform" is present
+            #       Magtransform = np.eye(3)  # magnetometer calibration is unknown. A 3x3 matrix, calculated in calibrateMagPrecise()
 
             calibrateMagPrecise(bus)
 
