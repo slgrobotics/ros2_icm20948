@@ -25,16 +25,6 @@ yaw = None
 eps = 1e-6  # small number to avoid division by zero in calculations
 min_field_uT = 1.0  # reject near-zero field magnitudes
 
-def apply_mag_cal(m):
-    # aligned with accel/gyro frame as published by ROS node
-    m = np.asarray(m, dtype=float).reshape(3,)
-    if not np.all(np.isfinite(m)):
-        return None  # defensively reject NaNs / bad shapes
-    m_corr = m - MagBias
-    m_corr = Magtransform @ m_corr
-    m_corr = m_corr * MagScale
-    return m_corr
-
 def calibrateMagPrecise(bus, numSamples=1000):
     """Calibrate Magnetometer Use this method for more precise calculation
     
@@ -53,7 +43,7 @@ def calibrateMagPrecise(bus, numSamples=1000):
 
     samples = []
     while len(samples) < numSamples:
-        m = icm_mag_lib.read_mag_enu(bus)
+        m = icm_mag_lib.read_mag(bus)
         if m is None:
             continue
         m = np.asarray(m, dtype=float)
@@ -162,6 +152,14 @@ def computeOrientation(mag_vals):
     yaw = np.degrees(yaw_r)
     yaw = (yaw + 180.0) % 360.0 - 180.0  # normalize to [-180, +180]
 
+def apply_mag_cal(m):
+    m = np.asarray(m, dtype=float).reshape(3,)
+    if not np.all(np.isfinite(m)):
+        return None  # defensively reject NaNs / bad shapes
+    m_corr = m - MagBias
+    m_corr = Magtransform @ m_corr
+    m_corr = m_corr * MagScale
+    return m_corr
 
 def read_orientation(bus, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
@@ -173,7 +171,7 @@ def read_orientation(bus, count, message=""):
     
     for i in range(count):
         time.sleep(0.2)
-        m = icm_mag_lib.read_mag_enu(bus)
+        m = icm_mag_lib.read_mag(bus)  # aligned with accel/gyro frame as published by ROS node
 
         if m is None:
             print("Mag read failed")
