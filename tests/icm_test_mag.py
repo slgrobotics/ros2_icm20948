@@ -12,7 +12,7 @@ magnetometer_bias = [0.0, 0.0, 0.0]
 def read_magnetometer(bus):
     last = None
     while True:
-        m = icm_mag_lib.read_mag_enu(bus)
+        m = icm_mag_lib.read_mag(bus)
         if m is not None:
             mx, my, mz = m
             # Apply calibration bias - assuming it was calibrated in ENU frame:
