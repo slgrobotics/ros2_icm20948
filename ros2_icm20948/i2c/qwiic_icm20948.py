@@ -674,18 +674,20 @@ class QwiicIcm20948(object):
 		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
 
 		# convert to Mag body frame (still type int)
-		self.axRaw = -ax  # Nose up (front rises): ax decreases (goes negative)
-		self.ayRaw = ay   # Left side up (roll right wing down): ay decreases (goes negative)
-		self.azRaw = -az  # az ≈ +9.81 m/s² (because +Z is up, and the accelerometer senses “upward support force” when sitting still)
+		self.axRaw = ax   # Nose up (front rises): ax increases (goes positive)
+		self.ayRaw = -ay  # Left side up (roll right wing down): ay increases (goes positive)
+		self.azRaw = -az  # when level, az ≈ +9.81 m/s²
 
-		self.gxRaw = -gx  # Roll left (left side goes down / right side goes up): gx positive
-		self.gyRaw = gy   # Rotate nose up (front rising, like “pulling up”): gy positive
+		# ros2 topic echo /imu/data | grep -A 3 "angular_velocity:"|grep "  x:"|grep -v "0.0"
+		self.gxRaw = gx   # Roll left (left side goes down / right side goes up): gx negative
+		self.gyRaw = -gy  # Tilt nose up (front rising, like “pulling up”): gy negative
 		self.gzRaw = -gz  # Turn left (CCW): gz positive
 
 		# Note: we leave accelerometer and gyro values as raw reads (int) here.
 		# Conversion to physical units is done in higher-level code.
-		# But we make sure that all returns are in ENU body reference frame (+X forward, +Y left, +Z Up).
+		# But we make sure that all returns are in the same mag body reference frame (+X forward, +Y left, +Z Up).
 
+		# check mag status and overflow bytes:
 		self.magStat1 = b[14]
 		mag_ready = (self.magStat1 & 0x01) != 0
 		if not mag_ready:
@@ -699,12 +701,13 @@ class QwiicIcm20948(object):
 		if mag_overflow:
 			return True  # keep previous mag; this sample invalid
 
+		# OK, mag data is sagfe to unpack:
 		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
 
 		scale_uT_per_lsb = 0.15
-		self.mxRaw = hy * scale_uT_per_lsb
-		self.myRaw = hx * scale_uT_per_lsb
-		self.mzRaw = hz * scale_uT_per_lsb  # µT, output is ENU world frame: +X East,  +Y North, +Z Up
+		self.mxRaw = hx * scale_uT_per_lsb
+		self.myRaw = hy * scale_uT_per_lsb
+		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Z flipped
 
 		return True
 
