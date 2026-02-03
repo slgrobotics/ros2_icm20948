@@ -184,7 +184,7 @@ def read_mag(bus):
         return None
 
     # Magnetic data is in bytes 1 to 7
-    hx, hy, hz = struct.unpack_from('<hhh', bytes(data[1:7]))
+    hx, hy, hz = struct.unpack_from('<hhh', bytes(data), 1)
 
     # Check ST2 (byte 8) for overflow (optional but recommended)
     st2 = data[8]
