@@ -706,8 +706,8 @@ class QwiicIcm20948(object):
 
 		scale_uT_per_lsb = 0.15
 		self.mxRaw = hx * scale_uT_per_lsb
-		self.myRaw = hy * scale_uT_per_lsb
-		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Z flipped
+		self.myRaw = -hy * scale_uT_per_lsb
+		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped
 
 		return True
 
