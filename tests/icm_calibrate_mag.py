@@ -22,7 +22,7 @@ roll = None
 pitch = None
 yaw = None
 
-eps = 1e-6  # small number to avoid division by zero in calculations
+min_accel = 1e-3    # small number to avoid division by zero in calculations
 min_field_uT = 1.0  # reject near-zero field magnitudes
 
 def calibrateMagPrecise(bus, numSamples=1000):
@@ -49,7 +49,7 @@ def calibrateMagPrecise(bus, numSamples=1000):
         m = np.asarray(m, dtype=float)
         if not np.all(np.isfinite(m)):
             continue
-        if np.linalg.norm(m) < eps:
+        if np.linalg.norm(m) < min_field_uT:
             continue
         samples.append(m)
         if len(samples) % 10 == 0:
@@ -102,7 +102,8 @@ def __ellipsoid_fit(X):
     evals, evecs = np.linalg.eigh(S)
     evecs = evecs.T
 
-    radii = np.sqrt(1.0 / np.abs(evals))
+    evals = np.clip(evals, 1e-12, None)
+    radii = np.sqrt(1.0 / evals)
 
     return center, evecs, radii, v
 
@@ -124,7 +125,7 @@ def computeOrientation(mag_vals):
     if mag_vals is None:
         return
 
-    if np.linalg.norm(AccelVals) < eps:
+    if np.linalg.norm(AccelVals) < min_accel:
         return
 
     magLength = np.linalg.norm(mag_vals)
