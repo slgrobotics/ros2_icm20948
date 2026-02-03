@@ -199,14 +199,13 @@ def print_calibration():
     print()
     print("#\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in MagScale) + "],  # should be 1.0 or omitted if \"magnetometer_transform\" is present")
     print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
-    if Magtransform is not None:
-        print("\"magnetometer_transform\": [")
-        for i, row in enumerate(Magtransform):
-            row_str = ", ".join(f"{x}" for x in row)
-            if i < len(Magtransform) - 1:
-                print(f"    {row_str},")
-            else:
-                print(f"    {row_str}],")
+    print("\"magnetometer_transform\": [")
+    for i, row in enumerate(Magtransform):
+        row_str = ", ".join(f"{x}" for x in row)
+        if i < len(Magtransform) - 1:
+            print(f"    {row_str},")
+        else:
+            print(f"    {row_str}],")
     print()
     print("---- Calibration results in Python for direct assignment (e.g. into read_mag.py)")
     print()
