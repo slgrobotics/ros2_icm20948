@@ -653,7 +653,7 @@ class QwiicIcm20948(object):
 	# getAgmt()
 	#
 	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
-	# Ensures that all values are reported in the ENU body reference frame
+	# Ensures that all values are reported in the mag body reference frame
 	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
 	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
 	#
