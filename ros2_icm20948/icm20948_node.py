@@ -292,7 +292,6 @@ class ICM20948Node(Node):
                 if rpy[0] is None:
                     self.logger.warning("Madgwick init failed (invalid accel/mag). Keeping identity quaternion.")
                 else:
-                    #roll, pitch, yaw = rpy  # ENU frame, yaw=0 East
                     roll, pitch, yaw = self.filter.quaternion_rpy_nav()  # Navigation frame, yaw=0 North
                     self.logger.info(
                         "Madgwick init:"
@@ -376,8 +375,8 @@ class ICM20948Node(Node):
         gy_raw = self.imu.gyRaw * self._gyro_mul
         gz_raw = self.imu.gzRaw * self._gyro_mul
 
-        # The self.imu.getAgmt() delivers "raw" magnetometer data in microTesla, in ENU frame, not calibrated.
-        # Apply user mag offset (calibration parameter "magnetometer_bias", ENU, in microtesla):
+        # The self.imu.getAgmt() delivers "raw" magnetometer data in microTesla, in mag body frame, not calibrated.
+        # Apply user mag offset (calibration parameter "magnetometer_bias", in microtesla):
         mx_uT = self.imu.mxRaw - float(self.mag_offset_uT[0])
         my_uT = self.imu.myRaw - float(self.mag_offset_uT[1])
         mz_uT = self.imu.mzRaw - float(self.mag_offset_uT[2])

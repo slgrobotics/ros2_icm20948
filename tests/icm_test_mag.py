@@ -15,7 +15,7 @@ def read_magnetometer(bus):
         m = icm_mag_lib.read_mag(bus)
         if m is not None:
             mx, my, mz = m
-            # Apply calibration bias - assuming it was calibrated in ENU frame:
+            # Apply calibration bias - assuming it was calibrated in mag body frame:
             cmx = mx - magnetometer_bias[0]
             cmy = my - magnetometer_bias[1]
             cmz = mz - magnetometer_bias[2]
@@ -24,7 +24,7 @@ def read_magnetometer(bus):
             #       and the values are not centered evenly around zero, apply additional adjustments.
 
             if last != m:
-                print(f"Mag [µT] Raw: X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated in ENU frame: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
+                print(f"Mag [µT] Raw: X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
                 last = m
         time.sleep(0.2)
 
@@ -32,7 +32,7 @@ def read_magnetometer(bus):
 Rotate the robot in place.
 The published values should roughly conform to the following matrix:
 
-    ENU    |    x    |    y    |    z    |
+           |    x    |    y    |    z    |
 ----------------------------------------   When robot rotates in place:
     North  |   +20   |     0   |   -40   |     N -> S  x changes from + to - (y stays the same around 0)
     East   |     0   |   +20   |   -40   |     E -> W  y changes from + to - (x stays the same around 0)

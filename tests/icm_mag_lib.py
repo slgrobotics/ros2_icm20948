@@ -174,7 +174,7 @@ def mag_init(bus):
     return True
 
 # Read magnetometer data in body frame
-def read_mag_ned(bus):
+def read_mag(bus):
     set_bank(bus, 0)
     # Read 9 bytes if slv0_setup_read was set to 9
     data = read_block(bus, EXT_SENS_DATA_00, 9)
@@ -192,4 +192,5 @@ def read_mag_ned(bus):
         return None  # Magnetic sensor overflow
 
     scale = 0.15 # µT/LSB
+    # same as in getAgmt() in ros2_icm20948/i2c/qwiic_icm20948.py
     return (hx * scale, hy * scale, hz * -scale)  # microTesla, had to flip Z for ROS2

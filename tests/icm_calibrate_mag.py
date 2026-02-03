@@ -261,7 +261,7 @@ def main():
             Rotate the robot in place.
             The published values should roughly conform to the following matrix:
 
-              ENU    |    x    |    y    |    z    |
+                     |    x    |    y    |    z    |
             ----------------------------------------   When robot rotates in place:
               North  |   +20   |     0   |   -40   |     N -> S  x changes from + to - (y stays the same around 0)
               East   |     0   |   +20   |   -40   |     E -> W  y changes from + to - (x stays the same around 0)
