@@ -193,4 +193,4 @@ def read_mag(bus):
 
     scale = 0.15 # µT/LSB
     # same as in getAgmt() in ros2_icm20948/i2c/qwiic_icm20948.py
-    return (hx * scale, hy * scale, hz * -scale)  # microTesla, had to flip Z for ROS2
+    return (hx * scale, hy * -scale, hz * -scale)  # microTesla, had to flip Y and Z for ROS2
