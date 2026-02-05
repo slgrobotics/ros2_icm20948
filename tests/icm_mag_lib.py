@@ -155,7 +155,7 @@ def mag_init(bus):
         print("Error: Could not read Mag ID (Transaction failed)")
         return False
     if wia2 != 0x09:
-        print(f"Error: Mag ID mismatch. Got 0x{wia2:02X}")
+        print(f"Error: Mag ID mismatch. Got 0x{wia2:02x}")
         return False
 
     print(f"Mag ID: 0x{wia2:02x}")

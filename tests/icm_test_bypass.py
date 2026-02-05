@@ -37,7 +37,7 @@ with SMBus(1) as bus:
     try:
         # Read WHO_AM_I from AK09916 (Register 0x01)
         wia2 = bus.read_byte_data(0x0C, 0x01)
-        print(f"Bypass Success! Mag ID: 0x{wia2:02X}")
+        print(f"Bypass Success! Mag ID: 0x{wia2:02x}")
     except:
         print("Bypass Failed: Magnetometer 0x0C not found on bus.")
 
