@@ -129,7 +129,7 @@ def main():
     while True:
         time.sleep(POLL_DT_S)
         try:
-            s = read_sample(imu, accel_mul, gyro_mul, magnetometer_bias)
+            s = read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
