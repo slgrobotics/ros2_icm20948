@@ -653,7 +653,7 @@ class QwiicIcm20948(object):
 	# getAgmt()
 	#
 	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
-	# Ensures that all values are reported in the mag body reference frame
+	# Ensures that all values are reported in the ROS2 body reference frame (REP-103: x fwd, y left, z up)
 	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
 	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
 	#
@@ -673,19 +673,20 @@ class QwiicIcm20948(object):
 
 		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
 
-		# convert to Mag body frame (still type int)
-		self.axRaw = ax   # Nose up (front rises): ax increases (goes positive)
-		self.ayRaw = -ay  # Left side up (roll right wing down): ay increases (goes positive)
-		self.azRaw = -az  # when level, az ≈ +9.81 m/s²
+		# convert to REP-103 body frame: x fwd, y left, z up (still type int)
+		self.axRaw = ax   # Tilt nose down (forward) → ax turns negative, az decreases (with all tilts)
+		self.ayRaw = -ay  # Roll left side down      → ay turns negative
+		self.azRaw = -az  # Flat on the floor        → ax and ay near zero, az is positive (+9.8 m/s²)
 
+		# To check rotations sign use:
 		# ros2 topic echo /imu/data | grep -A 3 "angular_velocity:"|grep "  x:"|grep -v "0.0"
 		self.gxRaw = gx   # Roll left (left side goes down / right side goes up): gx negative
-		self.gyRaw = -gy  # Tilt nose up (front rising, like “pulling up”): gy negative
-		self.gzRaw = -gz  # Turn left (CCW): gz positive
+		self.gyRaw = -gy  # Tilt nose down (robot pitching forward)  → gy goes positive
+		self.gzRaw = -gz  # Turn left (CCW, viewed from above)       → gz goes positive
 
 		# Note: we leave accelerometer and gyro values as raw reads (int) here.
 		# Conversion to physical units is done in higher-level code.
-		# But we make sure that all returns are in the same mag body reference frame (+X forward, +Y left, +Z Up).
+		# But we make sure that all returns are in the same REP-103 body reference frame (+X forward, +Y left, +Z Up).
 
 		# check mag status and overflow bytes:
 		self.magStat1 = b[14]
@@ -707,7 +708,7 @@ class QwiicIcm20948(object):
 		scale_uT_per_lsb = 0.15
 		self.mxRaw = hx * scale_uT_per_lsb
 		self.myRaw = -hy * scale_uT_per_lsb
-		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped
+		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped to align with acc/gyro
 
 		return True
 

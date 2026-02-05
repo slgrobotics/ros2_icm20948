@@ -375,7 +375,8 @@ class ICM20948Node(Node):
         gy_raw = self.imu.gyRaw * self._gyro_mul
         gz_raw = self.imu.gzRaw * self._gyro_mul
 
-        # The self.imu.getAgmt() delivers "raw" magnetometer data in microTesla, in mag body frame, not calibrated.
+        # The self.imu.getAgmt() delivers "raw" magnetometer data in microTesla,
+        #   in REP-103 body frame (x fwd, y left, z up), not calibrated.
         # Apply user mag offset (calibration parameter "magnetometer_bias", in microtesla):
         mx_uT = self.imu.mxRaw - float(self.mag_offset_uT[0])
         my_uT = self.imu.myRaw - float(self.mag_offset_uT[1])
