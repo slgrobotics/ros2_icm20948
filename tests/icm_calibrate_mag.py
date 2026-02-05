@@ -208,21 +208,21 @@ def print_calibration():
         else:
             print(f"    {row_str}],")
     print()
-    print("---- Calibration results in Python for direct assignment (e.g. into read_mag.py)")
+    print("---- Calibration results in Python for direct assignment (e.g. into icm_test_mag.py)")
     print()
     # MagBias
     bias_str = ", ".join(f"{v:.16e}" for v in MagBias)
-    print(f"MagBias = np.array([{bias_str}])")
+    print(f"magnetometer_bias = [{bias_str}]")
 
     # Magtransform
-    print("Magtransform = np.array([")
+    print("magnetometer_transform = [")
     for i, row in enumerate(Magtransform):
         row_str = ", ".join(f"{v:.16e}" for v in row)
         if i < len(Magtransform) - 1:
             print(f"    [{row_str}],")
         else:
             print(f"    [{row_str}]")
-    print("])")
+    print("]")
     print("--------------------------------------------------------------------------------")
 
 def main():

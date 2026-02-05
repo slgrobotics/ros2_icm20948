@@ -15,7 +15,7 @@ def read_magnetometer(bus):
         m = icm_mag_lib.read_mag(bus)
         if m is not None:
             mx, my, mz = m
-            # Apply calibration bias - assuming it was calibrated in mag body frame:
+            # Apply calibration bias - assuming it was calibrated in REP-103 body frame (x fwd, y left, z up):
             cmx = mx - magnetometer_bias[0]
             cmy = my - magnetometer_bias[1]
             cmz = mz - magnetometer_bias[2]

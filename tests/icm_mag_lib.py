@@ -173,7 +173,7 @@ def mag_init(bus):
     slv0_setup_read(bus, AK_ADDR, AK_ST1, 9)
     return True
 
-# Read magnetometer data in body frame
+# Read magnetometer data in REP-103 body reference frame (+X forward, +Y left, +Z Up)
 def read_mag(bus):
     set_bank(bus, 0)
     # Read 9 bytes if slv0_setup_read was set to 9
