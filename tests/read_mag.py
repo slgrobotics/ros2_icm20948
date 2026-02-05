@@ -1,42 +1,105 @@
-from smbus2 import SMBus
 import time
 import signal
 import sys
-import icm_mag_lib
+from pathlib import Path
 
 import numpy as np
 
-from pathlib import Path
+import icm_mag_lib
 
 # Add workspace src/ to PYTHONPATH
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from ros2_icm20948.i2c import qwiic_icm20948
-from ros2_icm20948.helpers import G0, std_dev_from_sums, accel_raw_to_mps2, gyro_raw_to_rads
+from ros2_icm20948.helpers import accel_raw_to_mps2, gyro_raw_to_rads
 
-i2c_addresses = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
+I2C_ADDRESSES = [0x68, 0x69]  # 0x69 (Adafruit) or 0x68 (generic board)
+POLL_DT_S = 0.2  # seconds
 
 #magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
 magnetometer_bias = [0.0, 0.0, 0.0]
 
-def read_magnetometer(bus):
-    last = None
-    while True:
-        m = icm_mag_lib.read_mag(bus)
-        if m is not None:
-            mx, my, mz = m
-            # Apply calibration bias - assuming it was calibrated in REP-103 body frame (x fwd, y left, z up):
-            cmx = mx - magnetometer_bias[0]
-            cmy = my - magnetometer_bias[1]
-            cmz = mz - magnetometer_bias[2]
+def find_imu(i2c_addresses=I2C_ADDRESSES):
+    """
+    Try each address, return (imu, addr). Raises RuntimeError if none found.
+    """
+    last_exc = None
+    for addr in i2c_addresses:
+        try:
+            imu = qwiic_icm20948.QwiicIcm20948(address=addr)
+            if imu.connected:
+                return imu, addr
+        except Exception as e:
+            last_exc = e
+            continue
+    raise RuntimeError(f"ICM20948 not connected (tried {i2c_addresses}). Last error: {last_exc}")
 
-            # Note: if after applying calibration you rotate the sensor in XY plane
-            #       and the values are not centered evenly around zero, apply additional adjustments.
 
-            if last != m:
-                print(f"Mag [µT] Raw: X:{mx:8.2f}  Y:{my:8.2f}  Z:{mz:8.2f}   Calibrated: X:{cmx:8.2f}  Y:{cmy:8.2f}  Z:{cmz:8.2f}")
-                last = m
-        time.sleep(0.2)
+def configure_imu(imu, accel_fsr=qwiic_icm20948.gpm2, gyro_fsr=qwiic_icm20948.dps250):
+    """
+    Initialize IMU and set FSRs. Returns (accel_mul, gyro_mul).
+    """
+    # Best practice: begin() first (ensures device is configured / mag started)
+    if not imu.begin():
+        raise RuntimeError("imu.begin() returned False")
+
+    # Override ranges after begin()
+    imu.setFullScaleRangeAccel(accel_fsr)
+    imu.setFullScaleRangeGyro(gyro_fsr)
+
+    accel_mul = accel_raw_to_mps2(accel_fsr)
+    gyro_mul = gyro_raw_to_rads(gyro_fsr)
+    return accel_mul, gyro_mul
+
+def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT):
+    """
+    Read one sample if ready; returns dict or None if not ready / invalid mag.
+    """
+    if not imu.dataReady():
+        print("read_sample(): data not ready")
+        return None
+
+    imu.getAgmt()
+
+    # If mag isn't ready yet, SparkFun code may keep old values or None depending on your getAgmt() edits.
+    if imu.mxRaw is None or imu.myRaw is None or imu.mzRaw is None:
+        print("read_sample(): mag invalid")
+        return None
+
+    # Convert accel/gyro
+    ax = imu.axRaw * accel_mul
+    ay = imu.ayRaw * accel_mul
+    az = imu.azRaw * accel_mul
+
+    gx = imu.gxRaw * gyro_mul
+    gy = imu.gyRaw * gyro_mul
+    gz = imu.gzRaw * gyro_mul
+
+    # Magnetometer in microTesla (already in your REP-103 aligned body frame)
+    m_raw = np.array([imu.mxRaw, imu.myRaw, imu.mzRaw], dtype=float)
+    m_cal = m_raw - mag_bias_uT
+
+    return {
+        "accel_mps2": (ax, ay, az),
+        "gyro_rads": (gx, gy, gz),
+        "mag_raw_uT": tuple(m_raw),
+        "mag_cal_uT": tuple(m_cal),
+        "temp_raw": imu.tmpRaw,
+    }
+
+
+def format_sample(s):
+    ax, ay, az = s["accel_mps2"]
+    gx, gy, gz = s["gyro_rads"]
+    mx, my, mz = s["mag_raw_uT"]
+    cmx, cmy, cmz = s["mag_cal_uT"]
+
+    return (
+        f"Accel: [{ax:9.4f}, {ay:9.4f}, {az:9.4f}] m/s^2   "
+        f"Gyro:  [{gx:9.4f}, {gy:9.4f}, {gz:9.4f}] rad/s   "
+        f"Mag raw: [{mx:9.4f}, {my:9.4f}, {mz:9.4f}] uT   "
+        f"Mag cal: [{cmx:9.4f}, {cmy:9.4f}, {cmz:9.4f}] uT"
+    )
 
 """
 Rotate the robot in place.
@@ -54,86 +117,33 @@ See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnet
 """
 
 def main():
-    try:
-        # Try each address until one connects
-        imu = None
-        i2c_addr = None
-        for addr in i2c_addresses:
-            try:
-                test_imu = qwiic_icm20948.QwiicIcm20948(address=addr)
-                if test_imu.connected:
-                    imu = test_imu
-                    i2c_addr = addr
-                    print(f"   i2c_addr: 0x{i2c_addr:X} ✓ (connected)")
-                    break
-            except Exception as e:
-                print(f"   i2c address 0x{addr:X} failed: {e}")
-                continue
+    imu, addr = find_imu()
+    print(f"i2c_addr: 0x{addr:X} ✓ (connected)")
 
-        if imu is None or not imu.connected:
-            print("Error: ICM20948 not connected. Check wiring / I2C bus / addresses.")
-            raise RuntimeError("ICM20948 not connected")
+    accel_mul, gyro_mul = configure_imu(imu)
+    print(
+        f"accel_fsr={qwiic_icm20948.gpm2} mul={accel_mul:.6g} m/s^2 per LSB, "
+        f"gyro_fsr={qwiic_icm20948.dps250} mul={gyro_mul:.6g} rad/s per LSB"
+    )
 
-        # Note: for Linux on Raspberry Pi iBus=1 is hardcoded in linux_i2c.py 
+    while True:
+        time.sleep(POLL_DT_S)
+        try:
+            s = read_sample(imu, accel_mul, gyro_mul, magnetometer_bias)
+        except Exception as e:
+            print(f"Error: getAgmt/read_sample failed: {e}")
+            continue
 
-        accel_fsr = qwiic_icm20948.gpm2
-        gyro_fsr  = qwiic_icm20948.dps250
+        if s is None:
+            continue
 
-        imu.setFullScaleRangeAccel(accel_fsr)
-        imu.setFullScaleRangeGyro(gyro_fsr)
-
-        _accel_mul = accel_raw_to_mps2(accel_fsr)
-        _gyro_mul  = gyro_raw_to_rads(gyro_fsr)
-
-        print(
-            f"   accel_fsr={accel_fsr} mul={_accel_mul:.6g} m/s^2 per LSB, "
-            f"gyro_fsr={gyro_fsr} mul={_gyro_mul:.6g} rad/s per LSB"
-        )
-
-        imu.begin()
-
-        while True:
-            time.sleep(0.2)
-            if imu.dataReady():
-                try:
-                    imu.getAgmt()
-                except Exception as e:
-                    print(f"Error: ICM20948 getAgmt() failed: {e}")
-                    continue
-
-                if imu.mxRaw is None or imu.myRaw is None or imu.mzRaw is None:
-                    print("Error: ICM20948 magnetometer data is None")
-                    continue
-
-                # --- Convert raw -> SI (already in REP-103 ENU: x fwd, y left, z up) ---
-                ax_raw = imu.axRaw * _accel_mul
-                ay_raw = imu.ayRaw * _accel_mul
-                az_raw = imu.azRaw * _accel_mul
-
-                gx_raw = imu.gxRaw * _gyro_mul
-                gy_raw = imu.gyRaw * _gyro_mul
-                gz_raw = imu.gzRaw * _gyro_mul
-
-                # The imu.getAgmt() delivers "raw" magnetometer data in microTesla,
-                #   in REP-103 body frame (x fwd, y left, z up), not calibrated.
-                # Apply user mag offset (calibration parameter "magnetometer_bias", in microtesla):
-                mx_uT = imu.mxRaw - float(magnetometer_bias[0])
-                my_uT = imu.myRaw - float(magnetometer_bias[1])
-                mz_uT = imu.mzRaw - float(magnetometer_bias[2])
-
-                print(
-                    f"Accel: [{ax_raw:9.4f}, {ay_raw:9.4f}, {az_raw:9.4f}] m/s^2   "
-                    f"Gyro: [{gx_raw:9.4f}, {gy_raw:9.4f}, {gz_raw:9.4f}] rad/s   "
-                    f"Mag raw: [{imu.mxRaw:9.4f}, {imu.myRaw:9.4f}, {imu.mzRaw:9.4f}] micro Tesla   "
-                    f"Mag cal: [{mx_uT:9.4f}, {my_uT:9.4f}, {mz_uT:9.4f}] micro Tesla"
-                )
-
-    except Exception as e:
-        print(f"I2C Error: {e}")
+        print(format_sample(s))
 
 def signal_handler(sig, frame):
-    print('\nExiting...')
+    print("\nExiting...")
     sys.exit(0)
+
+
 signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
