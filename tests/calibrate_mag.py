@@ -40,19 +40,16 @@ def calibrateMagPrecise(imu, numSamples=1000):
     pitch and roll angles.
     """
 
-    global accel_mul, gyro_mul, MagBias, Magtransform, MagScale
+    global accel_mul, gyro_mul, MagBias, MagTransform
 
-    # make sure we are not applying calibration in readSensor():
-    MagBias[:] = 0.0
-    Magtransform = np.eye(3)
-
-    m_bias_arr = np.array(magnetometer_bias, dtype=float)
-    
     samples = []
     while len(samples) < numSamples:
 
+        time.sleep(0.02)  # we sleep on "continue" too. 20 ms here for faster sample acquisition 
+
         try:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
+            # no need to supply MagBias, Magtransform, MagScale - we need raw values:
+            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
@@ -69,7 +66,7 @@ def calibrateMagPrecise(imu, numSamples=1000):
         m = np.asarray(m, dtype=float).reshape(3,)
 
         if not np.all(np.isfinite(m)):
-            print("Mag read failed - bad shape on None?")
+            print("Mag read failed - NaN/inf?")
             continue
         if np.linalg.norm(m) < min_field_uT:
             print("Mag read failed - norm too small")
@@ -78,7 +75,6 @@ def calibrateMagPrecise(imu, numSamples=1000):
         samples.append(m)
         if len(samples) % 10 == 0:
             print(f"Calibration progress: {len(samples)}/{numSamples}", end="\r", flush=True)
-        time.sleep(0.02)
 
     X = np.vstack(samples)
     centre, evecs, radii, v = __ellipsoid_fit(X)
@@ -180,7 +176,7 @@ def computeOrientation(mag_vals):
 def read_orientation(imu, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
 
-    global accel_mul, gyro_mul, MagVals, MagBias, MagScale, Magtransform, MagScale, AccelVals, roll, pitch, yaw
+    global accel_mul, gyro_mul, MagVals, MagBias, Magtransform, MagScale, AccelVals, roll, pitch, yaw
 
     if message:
         print(message)
@@ -188,7 +184,8 @@ def read_orientation(imu, count, message=""):
     m_bias_arr = np.array(magnetometer_bias, dtype=float)
     
     for i in range(count):
-        time.sleep(POLL_DT_S)
+
+        time.sleep(POLL_DT_S)  # we sleep on "continue" too
 
         try:
             s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)

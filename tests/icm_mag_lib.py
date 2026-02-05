@@ -43,7 +43,7 @@ def configure_imu(imu, accel_fsr=qwiic_icm20948.gpm2, gyro_fsr=qwiic_icm20948.dp
     gyro_mul = gyro_raw_to_rads(gyro_fsr)
     return accel_mul, gyro_mul
 
-def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT, mag_transform=None, mag_scale=None):
+def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT=None, mag_transform=None, mag_scale=None):
     """
     Read one sample if ready; returns dict or None if not ready / invalid mag.
     """
@@ -69,7 +69,11 @@ def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT, mag_transform=None, mag_s
 
     # Magnetometer in microTesla (already in your REP-103 aligned body frame)
     m_raw = np.array([imu.mxRaw, imu.myRaw, imu.mzRaw], dtype=float)
-    m_cal = m_raw - mag_bias_uT
+
+    # apply calibration only if requested:
+    m_cal = m_raw
+    if mag_bias_uT is not None:
+        m_cal = m_cal - mag_bias_uT
     if mag_transform is not None:
         m_cal = mag_transform @ m_cal
     if mag_scale is not None:
@@ -79,7 +83,7 @@ def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT, mag_transform=None, mag_s
         "accel_mps2": (ax, ay, az),
         "gyro_rads": (gx, gy, gz),
         "mag_raw_uT": tuple(m_raw),
-        "mag_cal_uT": tuple(m_cal),
+        "mag_cal_uT": tuple(m_cal),  # m_raw if no calibration requested
         "temp_raw": imu.tmpRaw,
     }
 
