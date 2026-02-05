@@ -692,6 +692,7 @@ class QwiicIcm20948(object):
 		self.magStat1 = b[14]
 		mag_ready = (self.magStat1 & 0x01) != 0
 		if not mag_ready:
+			print(f"Error: getAgmt() - mag not ready,   magStat1=0x{self.magStat1:02x} (bit 1 not set)")
 			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
 
 		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
@@ -700,6 +701,7 @@ class QwiicIcm20948(object):
 
 		mag_overflow = (self.magStat2 & 0x08) != 0
 		if mag_overflow:
+			print(f"Error: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
 			return True  # keep previous mag; this sample invalid
 
 		# OK, mag data is sagfe to unpack:

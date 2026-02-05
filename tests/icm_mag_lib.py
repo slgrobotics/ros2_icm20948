@@ -72,7 +72,7 @@ def enable_i2c_master(bus, addr):
     global icm_addr
     icm_addr = addr
 
-    print(f"Device address: 0x{icm_addr:x}")
+    print(f"Device address: 0x{icm_addr:02x}")
 
     set_bank(bus, 0)
     write_reg(bus, PWR_MGMT_1, 0x01)  # wake, auto clock
@@ -142,10 +142,10 @@ def find_icm_address(bus, addrs):
         try:
             enable_i2c_master(bus, addr)
             mag_init(bus)
-            print(f"ICM-20948 found at 0x{addr:02X}")
+            print(f"ICM-20948 found at 0x{addr:02x}")
             return addr
         except Exception as e:
-            print(f"No ICM at 0x{addr:02X}: {e}")
+            print(f"No ICM at 0x{addr:02x}: {e}")
     return None
 
 def mag_init(bus):
@@ -158,7 +158,7 @@ def mag_init(bus):
         print(f"Error: Mag ID mismatch. Got 0x{wia2:02X}")
         return False
 
-    print(f"Mag ID: 0x{wia2:02X}")
+    print(f"Mag ID: 0x{wia2:02x}")
 
     # Reset Mag: AK_CNTL3 (0x32) = 0x01
     if not slv4_txn(bus, AK_ADDR, 0x32, 0x01):
