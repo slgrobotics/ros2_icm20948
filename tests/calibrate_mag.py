@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-import icm_mag_lib
+import icm_lib
 
 #magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
 magnetometer_bias = [0.0, 0.0, 0.0]
@@ -49,7 +49,7 @@ def calibrateMagPrecise(imu, numSamples=1000):
 
         try:
             # no need to supply MagBias, Magtransform, MagScale - we need raw values:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul)
+            s = icm_lib.read_sample(imu, accel_mul, gyro_mul)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
@@ -188,7 +188,7 @@ def read_orientation(imu, count, message=""):
         time.sleep(POLL_DT_S)  # we sleep on "continue" too
 
         try:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
+            s = icm_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
@@ -258,13 +258,13 @@ def main():
 
     global accel_mul, gyro_mul, MagVals, MagBias, MagScale, Magtransform, roll, pitch, yaw
 
-    imu, addr = icm_mag_lib.find_imu()
+    imu, addr = icm_lib.find_imu()
     print(f"i2c_addr: 0x{addr:X} ✓ (connected)")
 
-    accel_mul, gyro_mul = icm_mag_lib.configure_imu(imu)
+    accel_mul, gyro_mul = icm_lib.configure_imu(imu)
     print(
-        f"accel_fsr={icm_mag_lib.qwiic_icm20948.gpm2} mul={accel_mul:.6g} m/s^2 per LSB, "
-        f"gyro_fsr={icm_mag_lib.qwiic_icm20948.dps250} mul={gyro_mul:.6g} rad/s per LSB"
+        f"accel_fsr={icm_lib.qwiic_icm20948.gpm2} mul={accel_mul:.6g} m/s^2 per LSB, "
+        f"gyro_fsr={icm_lib.qwiic_icm20948.dps250} mul={gyro_mul:.6g} rad/s per LSB"
     )
 
     print("OK: IMU initialized")

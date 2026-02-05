@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-import icm_mag_lib
+import icm_lib
 
 #magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
 magnetometer_bias = [0.0, 0.0, 0.0]
@@ -40,19 +40,19 @@ See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnet
 """
 
 def main():
-    imu, addr = icm_mag_lib.find_imu()
+    imu, addr = icm_lib.find_imu()
     print(f"i2c_addr: 0x{addr:X} ✓ (connected)")
 
-    accel_mul, gyro_mul = icm_mag_lib.configure_imu(imu)
+    accel_mul, gyro_mul = icm_lib.configure_imu(imu)
     print(
-        f"accel_fsr={icm_mag_lib.qwiic_icm20948.gpm2} mul={accel_mul:.6g} m/s^2 per LSB, "
-        f"gyro_fsr={icm_mag_lib.qwiic_icm20948.dps250} mul={gyro_mul:.6g} rad/s per LSB"
+        f"accel_fsr={icm_lib.qwiic_icm20948.gpm2} mul={accel_mul:.6g} m/s^2 per LSB, "
+        f"gyro_fsr={icm_lib.qwiic_icm20948.dps250} mul={gyro_mul:.6g} rad/s per LSB"
     )
 
     while True:
         time.sleep(POLL_DT_S)  # we sleep on "continue" too
         try:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
+            s = icm_lib.read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
