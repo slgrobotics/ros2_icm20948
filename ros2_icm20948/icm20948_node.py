@@ -54,7 +54,7 @@ class ICM20948Node(Node):
 
         # Get i2c_address parameter (list of addresses to try)
         i2c_addresses = self.get_parameter("i2c_address").get_parameter_value().integer_array_value
-        self.logger.info(f"   i2c_addresses to try: {[f'0x{addr:X}' for addr in i2c_addresses]}")
+        self.logger.info(f"   i2c_addresses to try: {[f'0x{addr:02x}' for addr in i2c_addresses]}")
 
         # Try each address until one connects
         self.imu = None
@@ -65,10 +65,10 @@ class ICM20948Node(Node):
                 if test_imu.connected:
                     self.imu = test_imu
                     self.i2c_addr = addr
-                    self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:X} ✓ (connected)")
+                    self.logger.info(f"   i2c_addr: 0x{self.i2c_addr:02x} ✓ (connected)")
                     break
             except Exception as e:
-                self.logger.debug(f"   i2c address 0x{addr:X} failed: {e}")
+                self.logger.debug(f"   i2c address 0x{addr:02x} failed: {e}")
                 continue
 
         if self.imu is None or not self.imu.connected:

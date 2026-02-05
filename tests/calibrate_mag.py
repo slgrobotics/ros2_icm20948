@@ -259,7 +259,7 @@ def main():
     global accel_mul, gyro_mul, MagVals, MagBias, MagScale, Magtransform, roll, pitch, yaw
 
     imu, addr = icm_lib.find_imu()
-    print(f"i2c_addr: 0x{addr:X} ✓ (connected)")
+    print(f"i2c_addr: 0x{addr:02x} ✓ (connected)")
 
     accel_mul, gyro_mul = icm_lib.configure_imu(imu)
     print(

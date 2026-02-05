@@ -41,7 +41,7 @@ See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnet
 
 def main():
     imu, addr = icm_lib.find_imu()
-    print(f"i2c_addr: 0x{addr:X} ✓ (connected)")
+    print(f"i2c_addr: 0x{addr:02x} ✓ (connected)")
 
     accel_mul, gyro_mul = icm_lib.configure_imu(imu)
     print(
