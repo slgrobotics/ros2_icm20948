@@ -50,7 +50,7 @@ def main():
     )
 
     while True:
-        time.sleep(POLL_DT_S)
+        time.sleep(POLL_DT_S)  # we sleep on "continue" too
         try:
             s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
         except Exception as e:
