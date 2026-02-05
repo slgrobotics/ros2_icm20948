@@ -40,33 +40,41 @@ def calibrateMagPrecise(imu, numSamples=1000):
     pitch and roll angles.
     """
 
-    global accel_mul, gyro_mul, MagBias, Magtransform
+    global accel_mul, gyro_mul, MagBias, Magtransform, MagScale
 
     # make sure we are not applying calibration in readSensor():
     MagBias[:] = 0.0
     Magtransform = np.eye(3)
 
+    m_bias_arr = np.array(magnetometer_bias, dtype=float)
+    
     samples = []
     while len(samples) < numSamples:
 
         try:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
+            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
 
+        # we are silently ignoring bad samples here, but can print if uncommented
         if s is None:
+            print("Sample read failed - None")
             continue
 
         m = s["mag_raw_uT"]
         if m is None:
+            print("Mag read failed - no mag values")
             continue
-        m = np.asarray(m, dtype=float)
+        m = np.asarray(m, dtype=float).reshape(3,)
 
         if not np.all(np.isfinite(m)):
+            print("Mag read failed - bad shape on None?")
             continue
         if np.linalg.norm(m) < min_field_uT:
+            print("Mag read failed - norm too small")
             continue
+
         samples.append(m)
         if len(samples) % 10 == 0:
             print(f"Calibration progress: {len(samples)}/{numSamples}", end="\r", flush=True)
@@ -169,28 +177,21 @@ def computeOrientation(mag_vals):
     yaw = np.degrees(yaw_r)
     yaw = (yaw + 180.0) % 360.0 - 180.0  # normalize to [-180, +180]
 
-def apply_mag_cal(m):
-    m = np.asarray(m, dtype=float).reshape(3,)
-    if not np.all(np.isfinite(m)):
-        return None  # defensively reject NaNs / bad shapes
-    m_corr = m - MagBias
-    m_corr = Magtransform @ m_corr
-    m_corr = m_corr * MagScale
-    return m_corr
-
 def read_orientation(imu, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
 
-    global accel_mul, gyro_mul, MagVals, MagBias, MagScale, Magtransform, AccelVals, roll, pitch, yaw
+    global accel_mul, gyro_mul, MagVals, MagBias, MagScale, Magtransform, MagScale, AccelVals, roll, pitch, yaw
 
     if message:
         print(message)
+
+    m_bias_arr = np.array(magnetometer_bias, dtype=float)
     
     for i in range(count):
         time.sleep(POLL_DT_S)
 
         try:
-            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, np.array(magnetometer_bias, dtype=float))
+            s = icm_mag_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
@@ -198,17 +199,22 @@ def read_orientation(imu, count, message=""):
         if s is None:
             continue
 
-        m = s["mag_raw_uT"]  # aligned with accel/gyro frame as published by ROS node
-
+        m = s["mag_cal_uT"]  # aligned with accel/gyro frame as published by ROS node, m_bias_arr subtracted
         if m is None:
             print("Mag read failed")
             continue
+        MagVals_c = np.asarray(m, dtype=float).reshape(3,)
+        if not np.all(np.isfinite(MagVals_c)):
+            print("Mag read failed - bad shape on None?")
+            continue
 
-        MagVals[0], MagVals[1], MagVals[2] = m  # microTesla, aligned with accel/gyro frame as published by ROS node
-
-        MagVals_c = apply_mag_cal(MagVals)  # still microTesla, same frame, calibrated
-        if MagVals_c is None:
-            print("apply_mag_cal() failed")
+        a = s["accel_mps2"]
+        if a is None:
+            print("Accel read failed")
+            continue
+        AccelVals = np.asarray(a, dtype=float).reshape(3,)
+        if not np.all(np.isfinite(AccelVals)):
+            print("Accel read failed - bad shape on None?")
             continue
 
         computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
