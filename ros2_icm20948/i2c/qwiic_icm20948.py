@@ -362,9 +362,7 @@ class QwiicIcm20948(object):
 			return False			   
 		bank = ((bank << 4) & 0x30) # bits 5:4 of REG_BANK_SEL
 		#return ICM_20948_execute_w(pdev, REG_BANK_SEL, &bank, 1)
-		ret = self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank)
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank)
 
 	# ----------------------------------
 	# swReset()
@@ -385,9 +383,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)		
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)
 
 	# ----------------------------------
 	# sleep()
@@ -411,9 +407,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)			
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)			
 
 	# ----------------------------------
 	# lowPower()
@@ -437,9 +431,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)	
 
 	# ----------------------------------
 	# setSampleMode()
@@ -483,9 +475,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_LP_CONFIG, register)		
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_LP_CONFIG, register)		
 
 	# ----------------------------------
 	# setFullScaleRangeAccel()
@@ -507,9 +497,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
 	# ----------------------------------
 	# setFullScaleRangeGyro()
@@ -531,9 +519,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
 
 	# ----------------------------------
 	# setDLPFcfgAccel()
@@ -555,9 +541,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
 	# ----------------------------------
 	# setDLPFcfgGyro()
@@ -579,9 +563,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)
 
 	# ----------------------------------
 	# enableDlpfAccel()
@@ -606,9 +588,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
 	# ----------------------------------
 	# enableDlpfGyro()
@@ -633,9 +613,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(2)
-		ret = self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
 
 	# ----------------------------------
 	# dataReady()
@@ -760,9 +738,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_INT_PIN_CONFIG, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_INT_PIN_CONFIG, register)	
 
 	# ----------------------------------
 	# i2cMasterEnable()
@@ -793,9 +769,7 @@ class QwiicIcm20948(object):
 		self.setBank(3)
 		#self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, register)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # try known-good 400k config
-		time.sleep(chip_wait_time)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_ODR_CONFIG, 0x04)
-		time.sleep(chip_wait_time)
 
 		# enable/disable Master I2C
 		# Read the AGB0_REG_USER_CTRL, store in local variable "register"
@@ -810,9 +784,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
 
 	# Transact directly with an I2C device, one byte at a time
 	# Used to configure a device before it is setup into a normal 0-3 slave slot
@@ -824,11 +796,9 @@ class QwiicIcm20948(object):
 
 		self.setBank(3)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_ADDR, addr)
-		time.sleep(chip_wait_time)
 
 		self.setBank(3)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_REG, reg)
-		time.sleep(chip_wait_time)
 
 		ctrl_register_slv4 = 0x00
 		ctrl_register_slv4 |= (1<<7) # EN bit [7] (set)
@@ -844,7 +814,6 @@ class QwiicIcm20948(object):
 		if (Rw == False):
 			self.setBank(3)
 			self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_DO, data)
-			time.sleep(chip_wait_time)
 
 		# Kick off txn
 		self.setBank(3)
@@ -937,9 +906,7 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)	
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)	
 
 	# ----------------------------------
 	# ICM_20948_i2c_master_configure_slave()
@@ -982,12 +949,10 @@ class QwiicIcm20948(object):
 			address |= (1<<7) # set bit# set RNW bit [7]
 		
 		self._i2c.writeByte(self.address, slv_addr_reg, address)
-		time.sleep(chip_wait_time)
 
 		# Set the slave sub-address (reg)
 		subAddress = reg
 		self._i2c.writeByte(self.address, slv_reg_reg, subAddress)
-		time.sleep(chip_wait_time)
 
 		# Set up the control info
 		ctrl_reg_slvX = 0x00
@@ -996,9 +961,7 @@ class QwiicIcm20948(object):
 		ctrl_reg_slvX |= (swap << 6)
 		ctrl_reg_slvX |= (data_only << 5)
 		ctrl_reg_slvX |= (grp << 4)
-		ret = self._i2c.writeByte(self.address, slv_ctrl_reg, ctrl_reg_slvX)
-		time.sleep(chip_wait_time)
-		return ret
+		return self._i2c.writeByte(self.address, slv_ctrl_reg, ctrl_reg_slvX)
 
 	# ----------------------------------
 	# startupMagnetometer()
