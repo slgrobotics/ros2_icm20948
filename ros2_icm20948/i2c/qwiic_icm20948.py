@@ -118,7 +118,6 @@ gyr_d361bw4_n376bw5 = 0x07
 # Magnetometer specific stuff
 MAG_AK09916_I2C_ADDR = 0x0C
 MAG_AK09916_WHO_AM_I = 0x4809
-MAG_REG_WHO_AM_I = 0x00
 AK09916_mode_power_down = 0x00
 AK09916_mode_single 	= (0x01 << 0)
 AK09916_mode_cont_10hz 	= (0x01 << 1)
@@ -312,8 +311,6 @@ class QwiicIcm20948(object):
 	M_REG_TS1 = 						0x33
 	M_REG_TS2 = 						0x34
 
-	SLV0_LEN =                             9  # Number of bytes to read from Mag when configured as I2C Master Slave 0
-
 	# Constructor
 	def __init__(self, address=None, i2c_driver=None):
 
@@ -340,7 +337,7 @@ class QwiicIcm20948(object):
 
 	def isConnected(self):
 		"""!
-		Determine if a ICM20948 device is conntected to the system..
+		Determine if a ICM20948 device is connected to the system..
 
 		@return **bool** True if the device is connected, otherwise False.
 		"""
@@ -380,6 +377,8 @@ class QwiicIcm20948(object):
 
 		@return **bool** Returns true if the software reset was successful, otherwise False.
 		"""
+		self._bank = -1      # invalidate cached bank (device state will change), force setBank()
+
 		# Read the Power Management Register, store in local variable "register"
 		self.setBank(0)
 		register = self._i2c.readByte(self.address, self.AGB0_REG_PWR_MGMT_1)
@@ -389,7 +388,10 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)
+		ret = self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)
+		time.sleep(0.05)     # allow reset to complete
+		self._bank = -1      # invalidate cached bank again to be safe
+		return ret
 
 	# ----------------------------------
 	# sleep()
@@ -643,20 +645,6 @@ class QwiicIcm20948(object):
 			return False
 
 	# ----------------------------------
-	# ToSignedInt()
-	#
-	# Takes an input data of 16 bits, and returns the signed 32 bit int version of this data
-	def ToSignedInt(self, input):
-		"""!
-		Takes an input data of 16 bits, and returns the signed 32 bit int version of this data
-
-		@return **int** Signed 32 bit integer
-		"""
-		if input > 32767:
-			input -= 65536
-		return input
-
-	# ----------------------------------
 	# getAgmt()
 	#
 	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
@@ -703,7 +691,7 @@ class QwiicIcm20948(object):
 			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
 
 		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
-		# dummy = b[21]  # Dummy byte should look "random-ish". Will be ST2 if ever SLV0_LEN=8
+		# dummy = b[21]  # Dummy byte should look "random-ish". Will be ST2 if ever SLV0_LEN=8. Make sure SLV0_LEN stays 9.
 		self.magStat2 = b[22]  # ST2 should almost always have bit0=0 and bit3 rarely=1 (overflow).
 
 		mag_overflow = (self.magStat2 & 0x08) != 0
@@ -806,9 +794,11 @@ class QwiicIcm20948(object):
 
 		self.setBank(3)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_ADDR, addr)
+		time.sleep(chip_wait_time)
 
 		self.setBank(3)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_REG, reg)
+		time.sleep(chip_wait_time)
 
 		ctrl_register_slv4 = 0x00
 		ctrl_register_slv4 |= (1<<7) # EN bit [7] (set)
@@ -824,6 +814,7 @@ class QwiicIcm20948(object):
 		if (Rw == False):
 			self.setBank(3)
 			self._i2c.writeByte(self.address, self.AGB3_REG_I2C_SLV4_DO, data)
+			time.sleep(chip_wait_time)
 
 		# Kick off txn
 		self.setBank(3)
@@ -883,7 +874,7 @@ class QwiicIcm20948(object):
 	# Checks to see that the Magnetometer returns the correct ID value
 	def magWhoIAm(self):
 		"""!
-		Checks to see that the Magnatometer returns the correct ID value
+		Checks to see that the Magnetometer returns the correct ID value
 
 		@return **bool** Returns true if the check was successful, otherwise False.
 		"""
@@ -924,12 +915,14 @@ class QwiicIcm20948(object):
 	# ICM_20948_i2c_master_configure_slave()
 	#
 	# Configures Master/slave settings for the ICM20948 as master, and slave in slots 0-3
-	def i2cMasterConfigureSlave(self, slave, addr, reg, len, Rw, enable, data_only, grp, swap):
+	def i2cMasterConfigureSlave(self, slave, addr, reg, Rw, enable, data_only, grp, swap):
 		"""!
 		Configures Master/slave settings for the ICM20948 as master, and slave in slots 0-3
 
 		@return **bool** Returns true if the configuration was successful, otherwise False.
 		"""
+		SLV0_LEN = 9  # Number of bytes to read from Mag when configured as I2C Master Slave 0. DO NOT CHANGE
+
 		# Adjust slave address, reg (aka sub-address), and control as needed for each slave slot (0-3)
 		slv_addr_reg = 0x00
 		slv_reg_reg = 0x00
@@ -970,7 +963,7 @@ class QwiicIcm20948(object):
 
 		# Set up the control info
 		ctrl_reg_slvX = 0x00
-		ctrl_reg_slvX |= (len & 0x0F)
+		ctrl_reg_slvX |= (SLV0_LEN & 0x0F)
 		ctrl_reg_slvX |= (enable << 7)
 		ctrl_reg_slvX |= (swap << 6)
 		ctrl_reg_slvX |= (data_only << 5)
@@ -982,12 +975,12 @@ class QwiicIcm20948(object):
 	# ----------------------------------
 	# startupMagnetometer()
 	#
-	# Initialize the magnotometer with default values
+	# Initialize the magnetometer with default values
 	def startupMagnetometer(self):
 		"""!
-		Initialize the magnotometer with default values
+		Initialize the magnetometer with default values
 
-		@return **bool** Returns true of the initializtion was successful, otherwise False.
+		@return **bool** Returns true of the initialization was successful, otherwise False.
 		"""
 		self.i2cMasterPassthrough(False) #Do not connect the SDA/SCL pins to AUX_DA/AUX_CL
 		self.i2cMasterEnable(True)
@@ -1011,7 +1004,7 @@ class QwiicIcm20948(object):
 		time.sleep(0.1)
 		self.writeMag(AK09916_REG_CNTL2, AK09916_mode_cont_100hz)  # Set up magnetometer
 
-		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, self.SLV0_LEN, True, True, False, False, False)
+		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, True, True, False, False, False)
 
 	# ----------------------------------
 	# begin()
