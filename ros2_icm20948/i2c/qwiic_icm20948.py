@@ -331,6 +331,7 @@ class QwiicIcm20948(object):
 			self._i2c = i2c_driver
 
 		self.mxRaw = self.myRaw = self.mzRaw = None
+		self._bank = -1
 
 	# ----------------------------------
 	# isConnected()
@@ -361,8 +362,13 @@ class QwiicIcm20948(object):
 			print("Invalid Bank value: %d" % bank)
 			return False			   
 		bank = ((bank << 4) & 0x30) # bits 5:4 of REG_BANK_SEL
+		if bank == self._bank:
+			return True
 		#return ICM_20948_execute_w(pdev, REG_BANK_SEL, &bank, 1)
-		return self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank)
+		ret = self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank)
+		self._bank = bank
+		time.sleep(chip_wait_time)
+		return ret
 
 	# ----------------------------------
 	# swReset()
@@ -705,7 +711,7 @@ class QwiicIcm20948(object):
 			print(f"Error: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
 			return True  # keep previous mag; this sample invalid
 
-		# OK, mag data is sagfe to unpack:
+		# OK, mag data is safe to unpack:
 		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
 
 		scale_uT_per_lsb = 0.15
@@ -753,23 +759,25 @@ class QwiicIcm20948(object):
 		
 		self.i2cMasterPassthrough(False) # Disable BYPASS_EN
 
+		"""
 		# Setup Master Clock speed as 345.6 kHz, and NSP (aka next slave read) to "stop between reads"
 		# Read the AGB3_REG_I2C_MST_CTRL, store in local variable "register"
 		self.setBank(3)
-		"""
 		register = self._i2c.readByte(self.address, self.AGB3_REG_I2C_MST_CTRL)
 
 		register &= ~(0x0F) # clear bits for master clock [3:0]
 		#register |= (0x07) # set bits for master clock [3:0], 0x07 corresponds to 345.6 kHz, good for up to 400 kHz
 		register |= (0x0D) # 400 kHz
 		register |= (1<<4) # set bit [4] for NSR (next slave read). 0 = restart between reads. 1 = stop between reads.
-		"""
 
 		# Write register
+		"""
+
 		self.setBank(3)
-		#self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, register)
-		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # try known-good 400k config
+		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # 400 kHz I2C bus speed
+		time.sleep(chip_wait_time)
 		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_ODR_CONFIG, 0x04)
+		time.sleep(chip_wait_time)
 
 		# enable/disable Master I2C
 		# Read the AGB0_REG_USER_CTRL, store in local variable "register"
@@ -784,7 +792,9 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		return self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
+		ret = self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
+		time.sleep(chip_wait_time)
+		return ret
 
 	# Transact directly with an I2C device, one byte at a time
 	# Used to configure a device before it is setup into a normal 0-3 slave slot
@@ -906,7 +916,9 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		return self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)	
+		ret = self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)	
+		time.sleep(chip_wait_time)
+		return ret
 
 	# ----------------------------------
 	# ICM_20948_i2c_master_configure_slave()
@@ -949,10 +961,12 @@ class QwiicIcm20948(object):
 			address |= (1<<7) # set bit# set RNW bit [7]
 		
 		self._i2c.writeByte(self.address, slv_addr_reg, address)
+		time.sleep(chip_wait_time)
 
 		# Set the slave sub-address (reg)
 		subAddress = reg
 		self._i2c.writeByte(self.address, slv_reg_reg, subAddress)
+		time.sleep(chip_wait_time)
 
 		# Set up the control info
 		ctrl_reg_slvX = 0x00
@@ -961,7 +975,9 @@ class QwiicIcm20948(object):
 		ctrl_reg_slvX |= (swap << 6)
 		ctrl_reg_slvX |= (data_only << 5)
 		ctrl_reg_slvX |= (grp << 4)
-		return self._i2c.writeByte(self.address, slv_ctrl_reg, ctrl_reg_slvX)
+		ret = self._i2c.writeByte(self.address, slv_ctrl_reg, ctrl_reg_slvX)
+		time.sleep(chip_wait_time)
+		return ret
 
 	# ----------------------------------
 	# startupMagnetometer()
@@ -991,10 +1007,9 @@ class QwiicIcm20948(object):
 			print("Mag ID fail. Tries: %d\n", tries)
 			return False
 
-		#Set up magnetometer
-		mag_reg_ctrl2 = 0x00
-		mag_reg_ctrl2 |= AK09916_mode_cont_100hz
-		self.writeMag(AK09916_REG_CNTL2, mag_reg_ctrl2)
+		self.writeMag(AK09916_REG_CNTL3, 0x01)  # Reset magnetometer
+		time.sleep(0.1)
+		self.writeMag(AK09916_REG_CNTL2, AK09916_mode_cont_100hz)  # Set up magnetometer
 
 		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, self.SLV0_LEN, True, True, False, False, False)
 
