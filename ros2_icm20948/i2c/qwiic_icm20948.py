@@ -5,11 +5,13 @@
 #
 # https://www.sparkfun.com/products/15335
 #
+# https://github.com/slgrobotics/ros2_icm20948  - modified for ROS2 by Sergei Grichine
+#
 #------------------------------------------------------------------------
 #
 # Written by  SparkFun Electronics, March 2020
 # 
-# This python library supports the SparkFun Electroncis qwiic 
+# This python library supports the SparkFun Electronics qwiic 
 # qwiic sensor/board ecosystem 
 #
 # More information on qwiic is at https:// www.sparkfun.com/qwiic
@@ -55,9 +57,9 @@ import time
 import struct
 
 # Define the device name and I2C addresses. These are set in the class defintion 
-# as class variables, making them avilable without having to create a class instance.
+# as class variables, making them available without having to create a class instance.
 # This allows higher level logic to rapidly create a index of qwiic devices at 
-# runtine
+# runtime
 #
 # The name of this device 
 _DEFAULT_NAME = "Qwiic ICM20948"
@@ -75,7 +77,7 @@ ICM_20948_Internal_Acc = (1 << 0)
 ICM_20948_Internal_Gyr = (1 << 1)
 ICM_20948_Internal_Mag = (1 << 2)
 ICM_20948_Internal_Tmp = (1 << 3)
-ICM_20948_Internal_Mst = (1 << 4) # I2C Master Ineternal
+ICM_20948_Internal_Mst = (1 << 4) # I2C Master Internal
 
 # Sample mode options
 ICM_20948_Sample_Mode_Continuous = 0x00
@@ -315,7 +317,7 @@ class QwiicIcm20948(object):
 	def __init__(self, address=None, i2c_driver=None):
 
 		# Did the user specify an I2C address?
-		self.address = address if address != None else self.available_addresses[0]
+		self.address = address if address is not None else self.available_addresses[0]
 
 		# load the I2C driver if one isn't provided
 
@@ -330,11 +332,6 @@ class QwiicIcm20948(object):
 		self.mxRaw = self.myRaw = self.mzRaw = None
 		self._bank = -1
 
-	# ----------------------------------
-	# isConnected()
-	#
-	# Is an actual board connected to our system?
-
 	def isConnected(self):
 		"""!
 		Determine if a ICM20948 device is connected to the system..
@@ -345,32 +342,31 @@ class QwiicIcm20948(object):
 
 	connected = property(isConnected)
 
-	# ----------------------------------
-	# setBank()
-	#
-	# Sets the bank register of the ICM20948 module
-	def setBank(self, bank):
+	def setBank(self, bank: int) -> bool:
 		"""!
 		Sets the bank register of the ICM20948 module
+		Relies on "self._bank=-1" on init and every time the chips reset
 
 		@return **bool** Returns true if the bank was a valid value and it was set, otherwise False.
 		"""
-		if bank > 3:	# Only 4 possible banks
-			print("Invalid Bank value: %d" % bank)
-			return False			   
-		bank = ((bank << 4) & 0x30) # bits 5:4 of REG_BANK_SEL
+		if not 0 <= bank <= 3:
+			print(f"Invalid Bank value: {bank}")
+			return False
+
+		# If already selected, do nothing
 		if bank == self._bank:
 			return True
-		#return ICM_20948_execute_w(pdev, REG_BANK_SEL, &bank, 1)
-		ret = self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank)
-		self._bank = bank
-		time.sleep(chip_wait_time)
+
+		#ret = ICM_20948_execute_w(pdev, REG_BANK_SEL, &bank, 1)
+		bank_sel = (bank << 4) & 0x30   # bits 5:4 of REG_BANK_SEL
+		ret = self._i2c.writeByte(self.address, self.REG_BANK_SEL, bank_sel)
+
+		if ret:
+			self._bank = bank        # store logical bank (0..3), not shifted value
+			time.sleep(chip_wait_time)
+
 		return ret
 
-	# ----------------------------------
-	# swReset()
-	#
-	# Performs a software reset on the ICM20948 module
 	def swReset(self):
 		"""!
 		Performs a software reset on the ICM20948 module
@@ -393,10 +389,6 @@ class QwiicIcm20948(object):
 		self._bank = -1      # invalidate cached bank again to be safe
 		return ret
 
-	# ----------------------------------
-	# sleep()
-	#
-	# Sets the ICM20948 module in or out of sleep mode
 	def sleep(self, on):
 		"""!
 		Sets the ICM20948 module in or out of sleep mode
@@ -417,10 +409,6 @@ class QwiicIcm20948(object):
 		self.setBank(0)
 		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)			
 
-	# ----------------------------------
-	# lowPower()
-	#
-	# Sets the ICM20948 module in or out of low power mode
 	def lowPower(self, on):
 		"""!
 		Sets the ICM20948 module in or out of low power mode
@@ -441,10 +429,6 @@ class QwiicIcm20948(object):
 		self.setBank(0)
 		return self._i2c.writeByte(self.address, self.AGB0_REG_PWR_MGMT_1, register)	
 
-	# ----------------------------------
-	# setSampleMode()
-	#
-	# Sets the sample mode of the ICM90248 module
 	def setSampleMode(self, sensors, mode):
 		"""!
 		Sets the sample mode of the ICM90248 module
@@ -485,10 +469,6 @@ class QwiicIcm20948(object):
 		self.setBank(0)
 		return self._i2c.writeByte(self.address, self.AGB0_REG_LP_CONFIG, register)		
 
-	# ----------------------------------
-	# setFullScaleRangeAccel()
-	#
-	# Sets the full scale range for the accel in the ICM20948 module
 	def setFullScaleRangeAccel(self, mode):
 		"""!
 		Sets the full scale range for the accel in the ICM20948 module
@@ -507,10 +487,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
-	# ----------------------------------
-	# setFullScaleRangeGyro()
-	#
-	# Sets the full scale range for the gyro in the ICM20948 module
 	def setFullScaleRangeGyro(self, mode):
 		"""!
 		Sets the full scale range for the gyro in the ICM20948 module
@@ -529,10 +505,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
 
-	# ----------------------------------
-	# setDLPFcfgAccel()
-	#
-	# Sets the digital low pass filter for the accel in the ICM20948 module
 	def setDLPFcfgAccel(self, dlpcfg):
 		"""!
 		Sets the digital low pass filter for the accel in the ICM20948 module
@@ -551,10 +523,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
-	# ----------------------------------
-	# setDLPFcfgGyro()
-	#
-	# Sets the digital low pass filter for the gyro in the ICM20948 module
 	def setDLPFcfgGyro(self, dlpcfg):
 		"""!
 		Sets the digital low pass filter for the gyro in the ICM20948 module
@@ -573,10 +541,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)
 
-	# ----------------------------------
-	# enableDlpfAccel()
-	#
-	# Enables or disables the accelerometer DLPF of the ICM90248 module
 	def enableDlpfAccel(self, on):
 		"""!
 		Enables or disables the accelerometer DLPF of the ICM90248 module
@@ -598,10 +562,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_ACCEL_CONFIG_1, register)	
 
-	# ----------------------------------
-	# enableDlpfGyro()
-	#
-	# Enables or disables the Gyro DLPF of the ICM90248 module
 	def enableDlpfGyro(self, on):
 		"""!
 		Enables or disables the Gyro DLPF of the ICM90248 module
@@ -623,10 +583,6 @@ class QwiicIcm20948(object):
 		self.setBank(2)
 		return self._i2c.writeByte(self.address, self.AGB2_REG_GYRO_CONFIG_1, register)			
 
-	# ----------------------------------
-	# dataReady()
-	#
-	# Returns status of RAW_DATA_0_RDY_INT the ICM90248 module
 	def dataReady(self):
 		"""!
 		Returns status of RAW_DATA_0_RDY_INT the ICM90248 module
@@ -644,75 +600,6 @@ class QwiicIcm20948(object):
 		else:
 			return False
 
-	# ----------------------------------
-	# getAgmt()
-	#
-	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
-	# Ensures that all values are reported in the ROS2 body reference frame (REP-103: x fwd, y left, z up)
-	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
-	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
-	#
-	def getAgmt(self):
-		"""Read accel/gyro/temp (BE) and mag (LE) from the ICM20948 burst block."""
-		numbytes = 23
-		self.setBank(0)
-
-		raw = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
-		if not raw or len(raw) != numbytes:
-			return False
-
-		b = bytes(raw)
-
-		# raw accel and gyro reads:
-		(ax, ay, az, gx, gy, gz, self.tmpRaw) = struct.unpack('>hhhhhhh', b[:14])
-
-		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
-
-		# convert to REP-103 body frame: x fwd, y left, z up (still type int)
-		self.axRaw = ax   # Tilt nose down (forward) → ax turns negative, az decreases (with all tilts)
-		self.ayRaw = -ay  # Roll left side down      → ay turns negative
-		self.azRaw = -az  # Flat on the floor        → ax and ay near zero, az is positive (+9.8 m/s²)
-
-		# To check rotations sign use:
-		# ros2 topic echo /imu/data | grep -A 3 "angular_velocity:"|grep "  x:"|grep -v "0.0"
-		self.gxRaw = gx   # Roll left (left side goes down / right side goes up): gx negative
-		self.gyRaw = -gy  # Tilt nose down (robot pitching forward)  → gy goes positive
-		self.gzRaw = -gz  # Turn left (CCW, viewed from above)       → gz goes positive
-
-		# Note: we leave accelerometer and gyro values as raw reads (int) here.
-		# Conversion to physical units is done in higher-level code.
-		# But we make sure that all returns are in the same REP-103 body reference frame (+X forward, +Y left, +Z Up).
-
-		# check mag status and overflow bytes:
-		self.magStat1 = b[14]
-		mag_ready = (self.magStat1 & 0x01) != 0
-		if not mag_ready:
-			print(f"Error: getAgmt() - mag not ready,   magStat1=0x{self.magStat1:02x} (bit 0 not set)")
-			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
-
-		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
-		# dummy = b[21]  # Dummy byte should look "random-ish". Will be ST2 if ever SLV0_LEN=8. Make sure SLV0_LEN stays 9.
-		self.magStat2 = b[22]  # ST2 should almost always have bit0=0 and bit3 rarely=1 (overflow).
-
-		mag_overflow = (self.magStat2 & 0x08) != 0
-		if mag_overflow:
-			print(f"Error: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
-			return True  # keep previous mag; this sample invalid
-
-		# OK, mag data is safe to unpack:
-		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
-
-		scale_uT_per_lsb = 0.15
-		self.mxRaw = hx * scale_uT_per_lsb
-		self.myRaw = -hy * scale_uT_per_lsb
-		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped to align with acc/gyro
-
-		return True
-
-	# ----------------------------------
-	# i2cMasterPassthrough()
-	#
-	# Enables or disables I2C Master Passthrough
 	def i2cMasterPassthrough(self, passthrough):
 		"""!
 		Enables or disables I2C Master Passthrough
@@ -734,10 +621,6 @@ class QwiicIcm20948(object):
 		self.setBank(0)
 		return self._i2c.writeByte(self.address, self.AGB0_REG_INT_PIN_CONFIG, register)	
 
-	# ----------------------------------
-	# i2cMasterEnable()
-	#
-	# Enables or disables I2C Master
 	def i2cMasterEnable(self, enable):
 		"""!
 		Enables or disables I2C Master
@@ -868,10 +751,6 @@ class QwiicIcm20948(object):
 		data = self.i2cMasterSingleR(MAG_AK09916_I2C_ADDR, reg)
 		return data
 
-	# ----------------------------------
-	# magWhoIAm()
-	#
-	# Checks to see that the Magnetometer returns the correct ID value
 	def magWhoIAm(self):
 		"""!
 		Checks to see that the Magnetometer returns the correct ID value
@@ -887,10 +766,6 @@ class QwiicIcm20948(object):
 		else:
 			return False
 
-	# ----------------------------------
-	# i2cMasterReset()
-	#
-	# Resets I2C Master Module
 	def i2cMasterReset(self):
 		"""!
 		Resets I2C Master Module
@@ -911,40 +786,21 @@ class QwiicIcm20948(object):
 		time.sleep(chip_wait_time)
 		return ret
 
-	# ----------------------------------
-	# ICM_20948_i2c_master_configure_slave()
-	#
-	# Configures Master/slave settings for the ICM20948 as master, and slave in slots 0-3
-	def i2cMasterConfigureSlave(self, slave, addr, reg, Rw, enable, data_only, grp, swap):
+	def i2cMasterConfigureSLV0(self, addr, reg, Rw=True, enable=True, data_only=False, grp=False, swap=False):
 		"""!
-		Configures Master/slave settings for the ICM20948 as master, and slave in slots 0-3
+		Configures Master/slave settings for the ICM20948 as master, and slave in slot 0
 
 		@return **bool** Returns true if the configuration was successful, otherwise False.
 		"""
 		SLV0_LEN = 9  # Number of bytes to read from Mag when configured as I2C Master Slave 0. DO NOT CHANGE
 
-		# Adjust slave address, reg (aka sub-address), and control as needed for each slave slot (0-3)
+		# Set slave address, reg (aka sub-address), and control as needed for slot 0
 		slv_addr_reg = 0x00
 		slv_reg_reg = 0x00
 		slv_ctrl_reg = 0x00
-		if slave == 0:
-			slv_addr_reg = self.AGB3_REG_I2C_SLV0_ADDR
-			slv_reg_reg = self.AGB3_REG_I2C_SLV0_REG
-			slv_ctrl_reg = self.AGB3_REG_I2C_SLV0_CTRL
-		elif slave == 1:
-			slv_addr_reg = self.AGB3_REG_I2C_SLV1_ADDR
-			slv_reg_reg = self.AGB3_REG_I2C_SLV1_REG
-			slv_ctrl_reg = self.AGB3_REG_I2C_SLV1_CTRL
-		elif slave == 2:
-			slv_addr_reg = self.AGB3_REG_I2C_SLV2_ADDR
-			slv_reg_reg = self.AGB3_REG_I2C_SLV2_REG
-			slv_ctrl_reg = self.AGB3_REG_I2C_SLV2_CTRL
-		elif slave == 3:
-			slv_addr_reg = self.AGB3_REG_I2C_SLV3_ADDR
-			slv_reg_reg = self.AGB3_REG_I2C_SLV3_REG
-			slv_ctrl_reg = self.AGB3_REG_I2C_SLV3_CTRL
-		else:
-			return False
+		slv_addr_reg = self.AGB3_REG_I2C_SLV0_ADDR
+		slv_reg_reg = self.AGB3_REG_I2C_SLV0_REG
+		slv_ctrl_reg = self.AGB3_REG_I2C_SLV0_CTRL
 
 		self.setBank(3)
 
@@ -972,10 +828,6 @@ class QwiicIcm20948(object):
 		time.sleep(chip_wait_time)
 		return ret
 
-	# ----------------------------------
-	# startupMagnetometer()
-	#
-	# Initialize the magnetometer with default values
 	def startupMagnetometer(self):
 		"""!
 		Initialize the magnetometer with default values
@@ -1004,15 +856,11 @@ class QwiicIcm20948(object):
 		time.sleep(0.1)
 		self.writeMag(AK09916_REG_CNTL2, AK09916_mode_cont_100hz)  # Set up magnetometer
 
-		return self.i2cMasterConfigureSlave(0, MAG_AK09916_I2C_ADDR, AK09916_REG_ST1, True, True, False, False, False)
+		return self.i2cMasterConfigureSLV0(MAG_AK09916_I2C_ADDR, AK09916_REG_ST1)
 
-	# ----------------------------------
-	# begin()
-	#
-	# Initialize the system/validate the board. 
 	def begin(self):
 		"""!
-		Initialize the operation of the ICM20948 module
+		Initialize the operation of the ICM20948 module: initialize the system/validate the board.
 
 		@return **bool** Returns true of the initializtion was successful, otherwise False.
 		"""
@@ -1051,4 +899,69 @@ class QwiicIcm20948(object):
 		self.startupMagnetometer()
 
 		return True
-	
+
+	# ----------------------------------
+	# getAgmt()
+	#
+	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
+	# Ensures that all values are reported in the ROS2 body reference frame (REP-103: x fwd, y left, z up)
+	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
+	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
+	#
+	def getAgmt(self):
+		"""Read accel/gyro/temp (BE) and mag (LE) from the ICM20948 burst block."""
+		numbytes = 23
+		self.setBank(0)
+
+		raw = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
+		if not raw or len(raw) != numbytes:
+			return False
+
+		b = bytes(raw)
+
+		# raw accel and gyro reads:
+		(ax, ay, az, gx, gy, gz, self.tmpRaw) = struct.unpack('>hhhhhhh', b[:14])
+
+		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
+
+		# convert to REP-103 body frame: x fwd, y left, z up (still type int)
+		self.axRaw = ax   # Tilt nose down (forward) → ax turns negative, az decreases (with all tilts)
+		self.ayRaw = -ay  # Roll left side down      → ay turns negative
+		self.azRaw = -az  # Flat on the floor        → ax and ay near zero, az is positive (+9.8 m/s²)
+
+		# To check rotations sign use:
+		# ros2 topic echo /imu/data | grep -A 3 "angular_velocity:"|grep "  x:"|grep -v "0.0"
+		self.gxRaw = gx   # Roll left (left side goes down / right side goes up): gx negative
+		self.gyRaw = -gy  # Tilt nose down (robot pitching forward)  → gy goes positive
+		self.gzRaw = -gz  # Turn left (CCW, viewed from above)       → gz goes positive
+
+		# Note: we leave accelerometer and gyro values as raw reads (int) here.
+		# Conversion to physical units is done in higher-level code.
+		# But we make sure that all returns are in the same REP-103 body reference frame (+X forward, +Y left, +Z Up).
+
+		# check mag status and overflow bytes:
+		self.magStat1 = b[14]
+		mag_ready = (self.magStat1 & 0x01) != 0
+		if not mag_ready:
+			print(f"Error: getAgmt() - mag not ready,   magStat1=0x{self.magStat1:02x} (bit 0 not set)")
+			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
+
+		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
+		# dummy = b[21]  # Dummy byte should look "random-ish". Will be ST2 if ever SLV0_LEN=8. Make sure SLV0_LEN stays 9.
+		self.magStat2 = b[22]  # ST2 should almost always have bit0=0 and bit3 rarely=1 (overflow).
+
+		mag_overflow = (self.magStat2 & 0x08) != 0
+		if mag_overflow:
+			print(f"Error: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
+			return True  # keep previous mag; this sample invalid
+
+		# OK, mag data is safe to unpack:
+		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
+
+		scale_uT_per_lsb = 0.15
+		self.mxRaw = hx * scale_uT_per_lsb
+		self.myRaw = -hy * scale_uT_per_lsb
+		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped to align with acc/gyro
+
+		return True
+
