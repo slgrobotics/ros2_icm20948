@@ -76,7 +76,7 @@ def _connectToI2CBus(iBus=1, *args, **argk):
 		error=True
 
 	# below is probably not needed, but ...
-	if(not error and daBus == None):
+	if(not error and daBus is None):
 		print("Error: Failed to connect to I2C bus %d" % (iBus), file=sys.stderr)
 
 	return daBus
@@ -167,7 +167,7 @@ class LinuxI2C(I2CDriver):
 		# add some error handling and recovery....
 		for i in range(_retry_count):
 			try:
-				if commandCode == None:
+				if commandCode is None:
 					data = self._read_no_command(address, 2) # TODO: Check this, we may need to switch endianess
 				else:
 					data = self._i2cbus.read_word_data(address, commandCode)
@@ -189,7 +189,7 @@ class LinuxI2C(I2CDriver):
 		data = 0
 		for i in range(_retry_count):
 			try:
-				if commandCode == None:
+				if commandCode is None:
 					data = self._i2cbus.read_byte(address)
 				elif commandCode != None:
 					data = self._i2cbus.read_byte_data(address, commandCode)
@@ -211,7 +211,7 @@ class LinuxI2C(I2CDriver):
 		data = 0
 		for i in range(_retry_count):
 			try:
-				if commandCode == None:
+				if commandCode is None:
 					data = self._read_no_command(address, nBytes)
 				else:
 					data = self._i2cbus.read_i2c_block_data(address, commandCode, nBytes)
@@ -322,7 +322,7 @@ class LinuxI2C(I2CDriver):
 		global _i2c_msg
 		
 		# Loads i2c_msg if not previously loaded
-		if _i2c_msg == None:
+		if _i2c_msg is None:
 			from smbus2 import i2c_msg
 			_i2c_msg = i2c_msg
         

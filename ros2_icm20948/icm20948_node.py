@@ -504,7 +504,7 @@ class ICM20948Node(Node):
             self.imu_pub.publish(self._imu_msg)
 
         # --- Temperature averaging/publish ---
-        temp_c = self.imu.tmpRaw / 333.87 + 21.0
+        temp_c = self.imu.temperatureRaw / 333.87 + 21.0
         self._temp_sum_c += temp_c
         self._temp_count += 1
 

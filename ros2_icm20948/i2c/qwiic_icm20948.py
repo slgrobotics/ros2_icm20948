@@ -56,15 +56,15 @@ from . import qwiic_i2c
 import time
 import struct
 
-# Define the device name and I2C addresses. These are set in the class defintion 
+# Define the device name and I2C addresses. These are set in the class definition 
 # as class variables, making them available without having to create a class instance.
-# This allows higher level logic to rapidly create a index of qwiic devices at 
+# This allows higher level logic to rapidly create an index of qwiic devices at 
 # runtime
 #
 # The name of this device 
 _DEFAULT_NAME = "Qwiic ICM20948"
 
-# Some devices have multiple availabel addresses - this is a list of these addresses.
+# Some devices have multiple available addresses - this is a list of these addresses.
 # NOTE: The first address in this list is considered the default I2C address for the 
 # device.
 _AVAILABLE_I2C_ADDRESS = [0x69, 0x68]
@@ -321,9 +321,9 @@ class QwiicIcm20948(object):
 
 		# load the I2C driver if one isn't provided
 
-		if i2c_driver == None:
+		if i2c_driver is None:
 			self._i2c = qwiic_i2c.getI2CDriver()
-			if self._i2c == None:
+			if self._i2c is None:
 				print("Unable to load I2C driver for this platform.")
 				return
 		else:
@@ -345,7 +345,7 @@ class QwiicIcm20948(object):
 	def setBank(self, bank: int) -> bool:
 		"""!
 		Sets the bank register of the ICM20948 module
-		Relies on "self._bank=-1" on init and every time the chips reset
+		Relies on "self._bank=-1" on init and every time the chip is reset
 
 		@return **bool** Returns true if the bank was a valid value and it was set, otherwise False.
 		"""
@@ -436,7 +436,8 @@ class QwiicIcm20948(object):
 		@return **bool** Returns true if the sample mode setting write was successful, otherwise False.
 		"""
 		# check for valid sensor ID from user of this function
-		if ((sensors & (ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr | ICM_20948_Internal_Mst)) == False):
+		valid_mask = ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr | ICM_20948_Internal_Mst
+		if (sensors & valid_mask) == 0:
 			print("Invalid Sensor ID")
 			return False
 
@@ -645,9 +646,9 @@ class QwiicIcm20948(object):
 		"""
 
 		self.setBank(3)
-		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # 400 kHz I2C bus speed
+		ok = self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # 400 kHz I2C bus speed
 		time.sleep(chip_wait_time)
-		self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_ODR_CONFIG, 0x04)
+		ok = ok and self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_ODR_CONFIG, 0x04)
 		time.sleep(chip_wait_time)
 
 		# enable/disable Master I2C
@@ -663,14 +664,16 @@ class QwiicIcm20948(object):
 
 		# Write register
 		self.setBank(0)
-		ret = self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
+		ok = ok and self._i2c.writeByte(self.address, self.AGB0_REG_USER_CTRL, register)
 		time.sleep(chip_wait_time)
-		return ret
+		return ok
 
 	# Transact directly with an I2C device, one byte at a time
 	# Used to configure a device before it is setup into a normal 0-3 slave slot
 	def ICM_20948_i2c_master_slv4_txn(self, addr, reg, data, Rw, send_reg_addr):
 		# Thanks MikeFair! // https://github.com/kriswiner/MPU9250/issues/86
+
+		i2c_mst_status = 0
 
 		if Rw:
 			addr |= 0x80
@@ -795,9 +798,6 @@ class QwiicIcm20948(object):
 		SLV0_LEN = 9  # Number of bytes to read from Mag when configured as I2C Master Slave 0. DO NOT CHANGE
 
 		# Set slave address, reg (aka sub-address), and control as needed for slot 0
-		slv_addr_reg = 0x00
-		slv_reg_reg = 0x00
-		slv_ctrl_reg = 0x00
 		slv_addr_reg = self.AGB3_REG_I2C_SLV0_ADDR
 		slv_reg_reg = self.AGB3_REG_I2C_SLV0_REG
 		slv_ctrl_reg = self.AGB3_REG_I2C_SLV0_CTRL
@@ -862,7 +862,7 @@ class QwiicIcm20948(object):
 		"""!
 		Initialize the operation of the ICM20948 module: initialize the system/validate the board.
 
-		@return **bool** Returns true of the initializtion was successful, otherwise False.
+		@return **bool** Returns true of the initialization was successful, otherwise False.
 		"""
 		# are we who we need to be?
 		self.setBank(0)
@@ -910,19 +910,27 @@ class QwiicIcm20948(object):
 	#
 	def getAgmt(self):
 		"""Read accel/gyro/temp (BE) and mag (LE) from the ICM20948 burst block."""
-		numbytes = 23
+		num_bytes = 23  # expected burst length
 		self.setBank(0)
 
-		raw = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, numbytes)
-		if not raw or len(raw) != numbytes:
+		raw = self._i2c.readBlock(self.address, self.AGB0_REG_ACCEL_XOUT_H, num_bytes)
+		if not raw or len(raw) != num_bytes:
+			to_print = f"{len(raw)}" if raw is not None else "None"
+			print(f"Error: getAgmt() - bad read,   expected: {num_bytes} got: {to_print}")
 			return False
 
 		b = bytes(raw)
 
 		# raw accel and gyro reads:
-		(ax, ay, az, gx, gy, gz, self.tmpRaw) = struct.unpack('>hhhhhhh', b[:14])
+		(ax, ay, az, gx, gy, gz, self.temperatureRaw) = struct.unpack('>hhhhhhh', b[:14])
 
-		# Note: temp_c = self.tmpRaw / 333.87 + 21.0
+		# Note: temp_c = self.temperatureRaw / 333.87 + 21.0
+
+		# Note: we leave accelerometer and gyro values as raw reads (int) here.
+		# Conversion to physical units is done in higher-level code.
+		# But we make sure that all returns are in the same REP-103 body reference frame (+X forward, +Y left, +Z Up).
+
+		# as expected for default mounting:
 
 		# convert to REP-103 body frame: x fwd, y left, z up (still type int)
 		self.axRaw = ax   # Tilt nose down (forward) → ax turns negative, az decreases (with all tilts)
@@ -935,15 +943,11 @@ class QwiicIcm20948(object):
 		self.gyRaw = -gy  # Tilt nose down (robot pitching forward)  → gy goes positive
 		self.gzRaw = -gz  # Turn left (CCW, viewed from above)       → gz goes positive
 
-		# Note: we leave accelerometer and gyro values as raw reads (int) here.
-		# Conversion to physical units is done in higher-level code.
-		# But we make sure that all returns are in the same REP-103 body reference frame (+X forward, +Y left, +Z Up).
-
 		# check mag status and overflow bytes:
 		self.magStat1 = b[14]
 		mag_ready = (self.magStat1 & 0x01) != 0
 		if not mag_ready:
-			print(f"Error: getAgmt() - mag not ready,   magStat1=0x{self.magStat1:02x} (bit 0 not set)")
+			print(f"Info: getAgmt() - mag not ready,   magStat1=0x{self.magStat1:02x} (bit 0 not set)")
 			return True  # accel/gyro/temp updated, mag not ready (self.mxRaw etc unchanged, initially None)
 
 		# NOTE: with SLV0_LEN=9 configuration we read ST2 as b[22]
@@ -952,7 +956,7 @@ class QwiicIcm20948(object):
 
 		mag_overflow = (self.magStat2 & 0x08) != 0
 		if mag_overflow:
-			print(f"Error: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
+			print(f"Info: getAgmt() - mag overflow,   magStat2=0x{self.magStat2:02x} (bit 3 set)")
 			return True  # keep previous mag; this sample invalid
 
 		# OK, mag data is safe to unpack:

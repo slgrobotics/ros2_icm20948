@@ -84,6 +84,6 @@ def read_sample(imu, accel_mul, gyro_mul, mag_bias_uT=None, mag_transform=None, 
         "gyro_rads": (gx, gy, gz),
         "mag_raw_uT": tuple(m_raw),
         "mag_cal_uT": tuple(m_cal),  # m_raw if no calibration requested
-        "temp_raw": imu.tmpRaw,
+        "temp_raw": imu.temperatureRaw,
     }
 
