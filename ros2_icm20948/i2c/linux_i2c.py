@@ -239,21 +239,42 @@ class LinuxI2C(I2CDriver):
 
 	def writeCommand(self, address, commandCode):
 
-		return self._i2cbus.write_byte(address, commandCode)
+		for i in range(_retry_count):
+			try:
+				self._i2cbus.write_byte(address, commandCode)
+				return True
+			except IOError as ioErr:
+				if i == _retry_count - 1:
+					raise
+		return False  # unreachable, but explicit
 
 	def write_command(self, address, commandCode):
 		return self.writeCommand(address, commandCode)
 
 	def writeWord(self, address, commandCode, value):
 
-		return self._i2cbus.write_word_data(address, commandCode, value)
+		for i in range(_retry_count):
+			try:
+				self._i2cbus.write_word_data(address, commandCode, value)
+				return True
+			except IOError as ioErr:
+				if i == _retry_count - 1:
+					raise
+		return False
 
 	def write_word(self, address, commandCode, value):
 		return self.writeWord(address, commandCode, value)
 
 	def writeByte(self, address, commandCode, value):
 
-		return self._i2cbus.write_byte_data(address, commandCode, value)
+		for i in range(_retry_count):
+			try:
+				self._i2cbus.write_byte_data(address, commandCode, value)
+				return True
+			except IOError as ioErr:
+				if i == _retry_count - 1:
+					raise
+		return False
 
 	def write_byte(self, address, commandCode, value):
 		return self.writeByte(address, commandCode, value)
@@ -262,8 +283,15 @@ class LinuxI2C(I2CDriver):
 
 		# if value is a bytearray - convert to list of ints (it's what 
 		# required by this call)
-		tmpVal = list(value) if type(value) == bytearray else value
-		self._i2cbus.write_i2c_block_data(address, commandCode, tmpVal)
+		tmpVal = list(value) if isinstance(value, (bytearray, bytes)) else value
+		for i in range(_retry_count):
+			try:
+				self._i2cbus.write_i2c_block_data(address, commandCode, tmpVal)
+				return True
+			except IOError as ioErr:
+				if i == _retry_count - 1:
+					raise
+		return False
 
 	def write_block(self, address, commandCode, value):
 		return self.writeBlock(address, commandCode, value)
