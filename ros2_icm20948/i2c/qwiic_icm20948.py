@@ -904,7 +904,7 @@ class QwiicIcm20948(object):
 	# getAgmt()
 	#
 	# Reads and updates raw values from accel, gyro, mag and temp of the ICM90248 module
-	# Ensures that all values are reported in the ROS2 body reference frame (REP-103: x fwd, y left, z up)
+	# Ensures that all values are reported in the ROS2 "mag body" reference frame (REP-103: x fwd, y left, z up)
 	# Accelerometer, Gyro and Temperature reads are returned in raw int16 format
 	# Magnetometer reads are returned in µT (micro-Tesla) units, float type
 	#
@@ -963,9 +963,10 @@ class QwiicIcm20948(object):
 		hx, hy, hz = struct.unpack_from('<hhh', b, 15)
 
 		scale_uT_per_lsb = 0.15
+
 		self.mxRaw = hx * scale_uT_per_lsb
-		self.myRaw = -hy * scale_uT_per_lsb
-		self.mzRaw = -hz * scale_uT_per_lsb  # µT - with Y and Z flipped to align with acc/gyro
+		self.myRaw = hy * scale_uT_per_lsb
+		self.mzRaw = hz * scale_uT_per_lsb  # µT - no axis conversion. Callers use "mag body" reference frame.
 
 		return True
 
