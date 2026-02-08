@@ -40,7 +40,7 @@ def calibrateMagPrecise(imu, numSamples=1000):
     pitch and roll angles.
     """
 
-    global accel_mul, gyro_mul, MagBias, MagTransform
+    global accel_mul, gyro_mul, MagBias, Magtransform
 
     samples = []
     while len(samples) < numSamples:
@@ -82,7 +82,7 @@ def calibrateMagPrecise(imu, numSamples=1000):
     a, b, c = radii
     r = (a * b * c) ** (1. / 3.)
     D = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
-    Magtransform = evecs.dot(D).dot(evecs.T)
+    Magtransform = evecs @ D @ evecs.T
     MagBias = centre
 
 def __ellipsoid_fit(X):
@@ -152,7 +152,6 @@ def computeOrientation(mag_vals):
     if magLength < min_field_uT:
         return
 
-    # Zeroes as we don't read accel values:
     roll_r  = np.arctan2(AccelVals[1], AccelVals[2])
     pitch_r = np.arctan2(-AccelVals[0], np.sqrt(AccelVals[1]**2 + AccelVals[2]**2))
 
@@ -173,7 +172,7 @@ def computeOrientation(mag_vals):
     yaw = np.degrees(yaw_r)
     yaw = (yaw + 180.0) % 360.0 - 180.0  # normalize to [-180, +180]
 
-def read_orientation(imu, count, message=""):
+def print_orientation(imu, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
 
     global accel_mul, gyro_mul, MagVals, MagBias, Magtransform, MagScale, AccelVals, roll, pitch, yaw
@@ -214,7 +213,7 @@ def read_orientation(imu, count, message=""):
             print("Accel read failed - bad shape on None?")
             continue
 
-        computeOrientation(MagVals_c)  # assume static level position for now, no Accel reading.
+        computeOrientation(MagVals_c)
 
         if roll is None:
             print(f"MagVals: x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation invalid (insufficient accel/mag)")
@@ -227,11 +226,11 @@ def print_calibration():
     print()
     print("---- Calibration results: copy this and paste into your ROS2 launch file:")
     print()
-    print("#\"magnetometer_scale\": [" + ", ".join(f"{x}" for x in MagScale) + "],  # should be 1.0 or omitted if \"magnetometer_transform\" is present")
-    print("\"magnetometer_bias\": [" + ", ".join(f"{x}" for x in MagBias) + "],")
+    print("#\"magnetometer_scale\": [" + ", ".join(f"{x:.8f}" for x in MagScale) + "],  # should be 1.0 or omitted if \"magnetometer_transform\" is present")
+    print("\"magnetometer_bias\": [" + ", ".join(f"{x:.8f}" for x in MagBias) + "],")
     print("\"magnetometer_transform\": [")
     for i, row in enumerate(Magtransform):
-        row_str = ", ".join(f"{x}" for x in row)
+        row_str = ", ".join(f"{x:.8f}" for x in row)
         if i < len(Magtransform) - 1:
             print(f"    {row_str},")
         else:
@@ -271,7 +270,7 @@ def main():
 
     # Note: Make sure you rotate the sensor in 8 shape and cover all the pitch and roll angles.
 
-    read_orientation(imu, 5, "IP: Reading initial mag values and orientation")
+    print_orientation(imu, 5, "IP: Reading initial mag values and orientation")
 
     print("calibrating - rotate the sensor in 8 shape and cover all the pitch and roll angles")
 
@@ -304,7 +303,7 @@ def main():
     """
 
     # Read and print calibrated values:
-    read_orientation(imu, 10000, "IP: Reading mag values and orientation after calibration")
+    print_orientation(imu, 10000, "IP: Reading mag values and orientation after calibration")
 
     print("Done")
 
