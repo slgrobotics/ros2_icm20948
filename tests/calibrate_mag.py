@@ -5,6 +5,7 @@ import sys
 import numpy as np
 
 import icm_lib
+from tests.ellipsoid_fit import ellipsoid_fit
 
 #magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
 magnetometer_bias = [0.0, 0.0, 0.0]
@@ -90,130 +91,6 @@ def calibrateMagPrecise(imu, numSamples=1000):
     Magtransform = evecs @ D @ evecs.T
     MagBias = centre
 
-def ellipsoid_fit(X):
-    """
-    Robust ellipsoid fit: fit center, principal axes and radii by
-    non-linear least squares refinement initialized from PCA.
-
-    Returns: center (3,), evecs (3,3) columns are principal axes, radii (3,), v (unused placeholder)
-    """
-    X = np.asarray(X, dtype=float)
-    if X.ndim != 2 or X.shape[1] != 3:
-        raise ValueError("X must be (N,3)")
-
-    # Initial guess: center=mean, axes from covariance PCA, radii from variances
-    center = X.mean(axis=0)
-    U = X - center
-    cov = (U.T @ U) / max(1, U.shape[0] - 1)
-    evals_cov, evecs_cov = np.linalg.eigh(cov)
-    # sort descending
-    idx = np.argsort(evals_cov)[::-1]
-    evals_cov = evals_cov[idx]
-    evecs_cov = evecs_cov[:, idx]
-
-    # Detect near-planar / degenerate data: if smallest variance is orders
-    # of magnitude smaller than largest, consider degenerate.
-    if evals_cov[-1] <= 0 or (evals_cov[-1] / max(evals_cov[0], 1e-30)) < 1e-4:
-        raise ValueError("Degenerate input: insufficient 3D excitation (near-planar data)")
-
-    # For points sampled on ellipsoid surface, variance ~ r^2 / 3
-    radii = np.sqrt(np.maximum(evals_cov * 3.0, 1e-6))
-
-    # Parameterize rotation as rotation vector (axis * angle)
-    def mat_to_rotvec(Rm):
-        trace = np.clip((np.trace(Rm) - 1.0) / 2.0, -1.0, 1.0)
-        theta = np.arccos(trace)
-        if abs(theta) < 1e-12:
-            return np.zeros(3)
-        rx = (Rm[2,1] - Rm[1,2])
-        ry = (Rm[0,2] - Rm[2,0])
-        rz = (Rm[1,0] - Rm[0,1])
-        k = np.array([rx, ry, rz])/(2*np.sin(theta))
-        return k * theta
-
-    def rotvec_to_mat(w):
-        theta = np.linalg.norm(w)
-        if theta < 1e-12:
-            return np.eye(3)
-        k = w/theta
-        K = np.array([[0, -k[2], k[1]],[k[2], 0, -k[0]],[-k[1], k[0], 0]])
-        Rm = np.eye(3) + np.sin(theta)*K + (1-np.cos(theta))*(K @ K)
-        return Rm
-
-    R0 = evecs_cov  # columns are principal directions (data frame)
-    w = mat_to_rotvec(R0)
-
-    # Use log radii to enforce positivity
-    s = np.log(np.maximum(radii, 1e-6))
-
-    # Pack parameters p = [cx,cy,cz, s0,s1,s2, w0,w1,w2]
-    p = np.concatenate([center, s, w])
-
-    def residuals(pvec):
-        c = pvec[0:3]
-        s = pvec[3:6]
-        w = pvec[6:9]
-        Rm = rotvec_to_mat(w)
-        r = np.exp(s)
-        Uc = (Rm.T @ (X.T - c.reshape(3,1))).T  # (N,3)
-        vals = (Uc / r)**2
-        res = vals.sum(axis=1) - 1.0
-        return res
-
-    # Levenberg-Marquardt-like iterative solver with numeric Jacobian
-    lam = 1e-3
-    maxit = 100
-    eps = 1e-6
-    prev_cost = np.inf
-    for it in range(maxit):
-        r = residuals(p)
-        cost = 0.5 * np.sum(r*r)
-        if cost < 1e-12:
-            break
-        # numerical jacobian
-        J = np.empty((r.size, p.size), dtype=float)
-        for k in range(p.size):
-            dp = np.zeros_like(p)
-            dp[k] = eps
-            r2 = residuals(p + dp)
-            J[:, k] = (r2 - r) / eps
-
-        JTJ = J.T @ J
-        g = J.T @ r
-        # Levenberg-Marquardt step
-        A = JTJ + lam * np.diag(np.diag(JTJ) + 1e-12)
-        try:
-            dp = -np.linalg.solve(A, g)
-        except np.linalg.LinAlgError:
-            break
-
-        p_try = p + dp
-        r_try = residuals(p_try)
-        cost_try = 0.5 * np.sum(r_try*r_try)
-        if cost_try < cost:
-            # accept
-            p = p_try
-            lam = max(lam*0.1, 1e-12)
-            prev_cost = cost_try
-            if np.linalg.norm(dp) < 1e-6:
-                break
-        else:
-            lam = lam * 10.0
-
-    # unpack final params
-    c = p[0:3]
-    s = p[3:6]
-    w = p[6:9]
-    Rm = rotvec_to_mat(w)
-    r = np.exp(s)
-
-    # Ensure orthonormality
-    U, _, Vt = np.linalg.svd(Rm)
-    Rm = U @ Vt
-
-    # v placeholder (not used by other code paths here)
-    v = np.zeros(10)
-    return c, Rm, r, v
 
 def computeOrientation(mag_vals):
     """ Computes roll, pitch and yaw
@@ -259,6 +136,7 @@ def computeOrientation(mag_vals):
     pitch = np.degrees(pitch_r)
     yaw = np.degrees(yaw_r)
     yaw = (yaw + 180.0) % 360.0 - 180.0  # normalize to [-180, +180]
+
 
 def print_orientation(imu, count, message=""):
     """Read and print IMU orientation for specified number of iterations."""
@@ -308,6 +186,7 @@ def print_orientation(imu, count, message=""):
         else:
             print(f"MagVals: x={MagVals_c[0]:8.2f} y={MagVals_c[1]:8.2f} z={MagVals_c[2]:8.2f} µT    Orientation: roll:{roll:8.2f}   pitch:{pitch:8.2f}   yaw:{yaw:8.2f} degrees (Nav convention: 0=North, +90=East)")
 
+
 def print_calibration():
 
     print("--------------------------------------------------------------------------------")
@@ -340,6 +219,7 @@ def print_calibration():
             print(f"    [{row_str}]")
     print("]")
     print("--------------------------------------------------------------------------------")
+
 
 def main():
 
@@ -405,12 +285,3 @@ signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     main()
-
-def test_ellipsoid_fit(X):
-    return ellipsoid_fit(X)
-
-# Sample input for testing
-X = np.random.rand(100, 3)  # 100 samples with 3 dimensions
-
-# Call the wrapper function
-center, evecs, radii, v = test_ellipsoid_fit(X)

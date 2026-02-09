@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from calibrate_mag import ellipsoid_fit
+from tests.ellipsoid_fit import ellipsoid_fit
 
 
 def _random_rotation_matrix(rng: np.random.Generator) -> np.ndarray:
@@ -88,6 +88,4 @@ def test__ellipsoid_fit_detects_degenerate_planar_data():
     with pytest.raises(ValueError):
         ellipsoid_fit(X)
 
-
-# Use `ellipsoid_fit` implemented in `calibrate_mag.py`
 
