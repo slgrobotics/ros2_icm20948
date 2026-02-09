@@ -6,7 +6,7 @@ import numpy as np
 
 import icm_lib
 
-#magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
+#magnetometer_bias = [-12.53908133, -11.08949955, 23.40434220]  # values from previous calibration run
 magnetometer_bias = [0.0, 0.0, 0.0]
 
 POLL_DT_S = 0.2  # seconds
