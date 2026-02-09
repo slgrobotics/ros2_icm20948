@@ -77,55 +77,143 @@ def calibrateMagPrecise(imu, numSamples=1000):
             print(f"Calibration progress: {len(samples)}/{numSamples}", end="\r", flush=True)
 
     X = np.vstack(samples)
-    centre, evecs, radii, v = __ellipsoid_fit(X)
+    centre, evecs, radii, v = ellipsoid_fit(X)
 
     a, b, c = radii
     r = (a * b * c) ** (1. / 3.)
-    D = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
+
+    print(f"Ellipsoid fit results: centre={centre}, radii={radii}, evecs=\n{evecs}")
+
+    D = np.diag([r/a, r/b, r/c])
+    #D = np.array([[r/a, 0., 0.], [0., r/b, 0.], [0., 0., r/c]])
+
     Magtransform = evecs @ D @ evecs.T
     MagBias = centre
 
-def __ellipsoid_fit(X):
-    x = X[:, 0]
-    y = X[:, 1]
-    z = X[:, 2]
-    D = np.array([x * x + y * y - 2 * z * z,
-                x * x + z * z - 2 * y * y,
-                2 * x * y,
-                2 * x * z,
-                2 * y * z,
-                2 * x,
-                2 * y,
-                2 * z,
-                1 - 0 * x])
-    d2 = np.array(x * x + y * y + z * z).T # rhs for LLSQ
-    M = D.dot(D.T)
-    u = np.linalg.solve(M + 1e-9*np.eye(M.shape[0]), D.dot(d2))
-    a = np.array([u[0] + 1 * u[1] - 1])
-    b = np.array([u[0] - 2 * u[1] - 1])
-    c = np.array([u[1] - 2 * u[0] - 1])
-    v = np.concatenate([a, b, c, u[2:]], axis=0).flatten()
-    A = np.array([[v[0], v[3], v[4], v[6]],
-                [v[3], v[1], v[5], v[7]],
-                [v[4], v[5], v[2], v[8]],
-                [v[6], v[7], v[8], v[9]]])
+def ellipsoid_fit(X):
+    """
+    Robust ellipsoid fit: fit center, principal axes and radii by
+    non-linear least squares refinement initialized from PCA.
 
-    center = np.linalg.solve(- A[:3, :3], v[6:9])
+    Returns: center (3,), evecs (3,3) columns are principal axes, radii (3,), v (unused placeholder)
+    """
+    X = np.asarray(X, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 3:
+        raise ValueError("X must be (N,3)")
 
-    translation_matrix = np.eye(4)
-    translation_matrix[:3, 3] = center
+    # Initial guess: center=mean, axes from covariance PCA, radii from variances
+    center = X.mean(axis=0)
+    U = X - center
+    cov = (U.T @ U) / max(1, U.shape[0] - 1)
+    evals_cov, evecs_cov = np.linalg.eigh(cov)
+    # sort descending
+    idx = np.argsort(evals_cov)[::-1]
+    evals_cov = evals_cov[idx]
+    evecs_cov = evecs_cov[:, idx]
 
-    R = translation_matrix.dot(A).dot(translation_matrix.T)
+    # Detect near-planar / degenerate data: if smallest variance is orders
+    # of magnitude smaller than largest, consider degenerate.
+    if evals_cov[-1] <= 0 or (evals_cov[-1] / max(evals_cov[0], 1e-30)) < 1e-4:
+        raise ValueError("Degenerate input: insufficient 3D excitation (near-planar data)")
 
-    S = R[:3, :3] / -R[3, 3]
-    S = 0.5*(S + S.T)
-    evals, evecs = np.linalg.eigh(S)
-    evecs = evecs.T
+    # For points sampled on ellipsoid surface, variance ~ r^2 / 3
+    radii = np.sqrt(np.maximum(evals_cov * 3.0, 1e-6))
 
-    evals = np.clip(evals, 1e-12, None)
-    radii = np.sqrt(1.0 / evals)
+    # Parameterize rotation as rotation vector (axis * angle)
+    def mat_to_rotvec(Rm):
+        trace = np.clip((np.trace(Rm) - 1.0) / 2.0, -1.0, 1.0)
+        theta = np.arccos(trace)
+        if abs(theta) < 1e-12:
+            return np.zeros(3)
+        rx = (Rm[2,1] - Rm[1,2])
+        ry = (Rm[0,2] - Rm[2,0])
+        rz = (Rm[1,0] - Rm[0,1])
+        k = np.array([rx, ry, rz])/(2*np.sin(theta))
+        return k * theta
 
-    return center, evecs, radii, v
+    def rotvec_to_mat(w):
+        theta = np.linalg.norm(w)
+        if theta < 1e-12:
+            return np.eye(3)
+        k = w/theta
+        K = np.array([[0, -k[2], k[1]],[k[2], 0, -k[0]],[-k[1], k[0], 0]])
+        Rm = np.eye(3) + np.sin(theta)*K + (1-np.cos(theta))*(K @ K)
+        return Rm
+
+    R0 = evecs_cov  # columns are principal directions (data frame)
+    w = mat_to_rotvec(R0)
+
+    # Use log radii to enforce positivity
+    s = np.log(np.maximum(radii, 1e-6))
+
+    # Pack parameters p = [cx,cy,cz, s0,s1,s2, w0,w1,w2]
+    p = np.concatenate([center, s, w])
+
+    def residuals(pvec):
+        c = pvec[0:3]
+        s = pvec[3:6]
+        w = pvec[6:9]
+        Rm = rotvec_to_mat(w)
+        r = np.exp(s)
+        Uc = (Rm.T @ (X.T - c.reshape(3,1))).T  # (N,3)
+        vals = (Uc / r)**2
+        res = vals.sum(axis=1) - 1.0
+        return res
+
+    # Levenberg-Marquardt-like iterative solver with numeric Jacobian
+    lam = 1e-3
+    maxit = 100
+    eps = 1e-6
+    prev_cost = np.inf
+    for it in range(maxit):
+        r = residuals(p)
+        cost = 0.5 * np.sum(r*r)
+        if cost < 1e-12:
+            break
+        # numerical jacobian
+        J = np.empty((r.size, p.size), dtype=float)
+        for k in range(p.size):
+            dp = np.zeros_like(p)
+            dp[k] = eps
+            r2 = residuals(p + dp)
+            J[:, k] = (r2 - r) / eps
+
+        JTJ = J.T @ J
+        g = J.T @ r
+        # Levenberg-Marquardt step
+        A = JTJ + lam * np.diag(np.diag(JTJ) + 1e-12)
+        try:
+            dp = -np.linalg.solve(A, g)
+        except np.linalg.LinAlgError:
+            break
+
+        p_try = p + dp
+        r_try = residuals(p_try)
+        cost_try = 0.5 * np.sum(r_try*r_try)
+        if cost_try < cost:
+            # accept
+            p = p_try
+            lam = max(lam*0.1, 1e-12)
+            prev_cost = cost_try
+            if np.linalg.norm(dp) < 1e-6:
+                break
+        else:
+            lam = lam * 10.0
+
+    # unpack final params
+    c = p[0:3]
+    s = p[3:6]
+    w = p[6:9]
+    Rm = rotvec_to_mat(w)
+    r = np.exp(s)
+
+    # Ensure orthonormality
+    U, _, Vt = np.linalg.svd(Rm)
+    Rm = U @ Vt
+
+    # v placeholder (not used by other code paths here)
+    v = np.zeros(10)
+    return c, Rm, r, v
 
 def computeOrientation(mag_vals):
     """ Computes roll, pitch and yaw
@@ -317,3 +405,12 @@ signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     main()
+
+def test_ellipsoid_fit(X):
+    return ellipsoid_fit(X)
+
+# Sample input for testing
+X = np.random.rand(100, 3)  # 100 samples with 3 dimensions
+
+# Call the wrapper function
+center, evecs, radii, v = test_ellipsoid_fit(X)

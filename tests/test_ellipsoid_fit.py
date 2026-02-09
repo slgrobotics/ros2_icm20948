@@ -1,10 +1,6 @@
 import numpy as np
 import pytest
-
-# Import your function under test
-# Adjust the import path to wherever ellipsoid_fit lives.
-# Example: from your_calibration_module import __ellipsoid_fit
-#from your_calibration_module import __ellipsoid_fit
+from calibrate_mag import ellipsoid_fit
 
 
 def _random_rotation_matrix(rng: np.random.Generator) -> np.ndarray:
@@ -93,78 +89,5 @@ def test__ellipsoid_fit_detects_degenerate_planar_data():
         ellipsoid_fit(X)
 
 
-def ellipsoid_fit(X: np.ndarray):
-    """
-    General quadric least-squares ellipsoid fit.
-
-    Returns:
-        center (3,)
-        evecs  (3,3) columns are principal axes
-        radii  (3,)
-        v      (10,)
-    """
-    X = np.asarray(X, dtype=float)
-    if X.ndim != 2 or X.shape[1] != 3:
-        raise ValueError("X must be (N,3)")
-
-    x, y, z = X[:, 0], X[:, 1], X[:, 2]
-
-    # Solve D @ v ≈ 1 (unconstrained; overall scale is arbitrary)
-    D = np.column_stack([
-        x * x, y * y, z * z,
-        2 * x * y, 2 * x * z, 2 * y * z,
-        2 * x, 2 * y, 2 * z,
-        np.ones_like(x),
-    ])
-    rhs = np.ones((X.shape[0],), dtype=float)
-    v, *_ = np.linalg.lstsq(D, rhs, rcond=None)
-
-    # Build symmetric quadric matrix A (4x4)
-    A = np.array([
-        [v[0], v[3], v[4], v[6]],
-        [v[3], v[1], v[5], v[7]],
-        [v[4], v[5], v[2], v[8]],
-        [v[6], v[7], v[8], v[9]],
-    ], dtype=float)
-
-    Q = A[:3, :3]
-    b = A[:3, 3]
-
-    # Q must be invertible to get a finite center
-    if not np.all(np.isfinite(Q)) or np.linalg.cond(Q) > 1e12:
-        raise ValueError("Degenerate quadric: Q ill-conditioned (insufficient 3D excitation).")
-
-    center = -np.linalg.solve(Q, b)
-
-    # Normalize using data: enforce (x-center)^T Qn (x-center) ≈ 1
-    U = X - center
-    s = np.einsum("ni,ij,nj->n", U, Q, U)
-
-    # Overall quadric scale is arbitrary; s can be tiny — that's OK.
-    # Use robust scale and handle sign.
-    s0 = float(np.median(s))
-    if not np.isfinite(s0) or abs(s0) < 1e-30:
-        # fallback: use median absolute value
-        s0 = float(np.median(np.abs(s)))
-        if not np.isfinite(s0) or s0 < 1e-30:
-            raise ValueError("Degenerate fit: quadratic form is numerically zero.")
-
-    # Make scale positive (ellipsoid wants positive definite Qn)
-    alpha = 1.0 / s0
-    Qn = Q * alpha
-    Qn = 0.5 * (Qn + Qn.T)
-
-    evals, evecs = np.linalg.eigh(Qn)
-
-    # For ellipsoid, all eigenvalues must be > 0
-    if np.any(evals <= 1e-12):
-        # Sometimes sign is flipped; try flipping once
-        Qn2 = -Qn
-        evals2, evecs2 = np.linalg.eigh(Qn2)
-        if np.any(evals2 <= 1e-12):
-            raise ValueError("Not an ellipsoid (non-positive eigenvalues). Likely degenerate / insufficient excitation.")
-        evals, evecs = evals2, evecs2
-
-    radii = 1.0 / np.sqrt(evals)
-    return center, evecs, radii, v
+# Use `ellipsoid_fit` implemented in `calibrate_mag.py`
 
