@@ -7,9 +7,6 @@ import numpy as np
 import icm_lib
 from tests.ellipsoid_fit import ellipsoid_fit
 
-#magnetometer_bias = [-10.777835913962377, -11.856655801720644, 23.791090191349884]  # values from previous calibration run
-magnetometer_bias = [0.0, 0.0, 0.0]
-
 POLL_DT_S = 0.2  # seconds
 
 accel_mul = gyro_mul = None
@@ -49,7 +46,7 @@ def calibrateMagPrecise(imu, numSamples=1000):
         time.sleep(0.02)  # we sleep on "continue" too. 20 ms here for faster sample acquisition 
 
         try:
-            # no need to supply MagBias, Magtransform, MagScale - we need raw values:
+            # no need to supply MagBias, Magtransform, MagScale - we need raw values here:
             s = icm_lib.read_sample(imu, accel_mul, gyro_mul)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
@@ -146,14 +143,12 @@ def print_orientation(imu, count, message=""):
     if message:
         print(message)
 
-    m_bias_arr = np.array(magnetometer_bias, dtype=float)
-    
     for i in range(count):
 
         time.sleep(POLL_DT_S)  # we sleep on "continue" too
 
         try:
-            s = icm_lib.read_sample(imu, accel_mul, gyro_mul, m_bias_arr, Magtransform, MagScale)
+            s = icm_lib.read_sample(imu, accel_mul, gyro_mul, MagBias, Magtransform, MagScale)
         except Exception as e:
             print(f"Error: getAgmt/read_sample failed: {e}")
             continue
@@ -161,7 +156,7 @@ def print_orientation(imu, count, message=""):
         if s is None:
             continue
 
-        m = s["mag_cal_uT"]  # aligned with accel/gyro frame as published by ROS node, m_bias_arr subtracted
+        m = s["mag_cal_uT"]  # aligned with accel/gyro frame as published by ROS node, MagBias subtracted
         if m is None:
             print("Mag read failed")
             continue
@@ -238,6 +233,8 @@ def main():
 
     # Note: Make sure you rotate the sensor in 8 shape and cover all the pitch and roll angles.
 
+    # using initial calibration (zero bias, identity transform) - should be very rough and likely unusable,
+    #  but good to check that we are getting some values before calibration
     print_orientation(imu, 5, "IP: Reading initial mag values and orientation")
 
     print("calibrating - rotate the sensor in 8 shape and cover all the pitch and roll angles")
@@ -270,7 +267,8 @@ def main():
     See https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml?#igrfwmm - magnetic field by location (microTesla, NED frame)
     """
 
-    # Read and print calibrated values:
+    # Read and print calibrated values - with calibration applied.
+    #  we should see more stable values that roughly conform to expected Earth field values above and change as we rotate the sensor.:
     print_orientation(imu, 10000, "IP: Reading mag values and orientation after calibration")
 
     print("Done")
