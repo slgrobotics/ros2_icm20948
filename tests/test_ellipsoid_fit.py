@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 # Import your function under test
 # Adjust the import path to wherever ellipsoid_fit lives.
@@ -42,6 +43,9 @@ def test__ellipsoid_fit_recovers_known_parameters():
 
     center_fit, evecs_fit, radii_fit, v = ellipsoid_fit(X_noisy)
 
+    print("center_fit:", center_fit)
+    print("radii_fit:", radii_fit)
+
     # --- sanity checks ---
     assert np.all(np.isfinite(center_fit))
     assert np.all(np.isfinite(radii_fit))
@@ -79,101 +83,88 @@ def test__ellipsoid_fit_detects_degenerate_planar_data():
     radii_true = np.array([45.0, 30.0, 25.0], dtype=float)
     R_true = _random_rotation_matrix(rng)
 
-    # Start from a real ellipsoid...
     U = _sample_unit_sphere_points(rng, n)
     X = (U * radii_true) @ R_true.T + center_true
 
-    # ...then crush Z variation (simulate mostly yaw rotations / poor 3D excitation)
+    # Crush Z variation (degenerate)
     X[:, 2] = center_true[2] + rng.normal(scale=0.2, size=n)
 
-    center_fit, evecs_fit, radii_fit, v = ellipsoid_fit(X)
+    with pytest.raises(ValueError):
+        ellipsoid_fit(X)
 
-    r = np.sort(np.asarray(radii_fit, dtype=float))
 
-    # In degenerate cases you typically see one radius explode (like 1e6)
-    # or an extreme aspect ratio.
-    assert (r[-1] > 500.0) or ((r[-1] / r[0]) > 20.0)
+def ellipsoid_fit(X: np.ndarray):
+    """
+    General quadric least-squares ellipsoid fit.
 
-def ellipsoid_fit(X):
-    x = X[:, 0]
-    y = X[:, 1]
-    z = X[:, 2]
-    D = np.array([x * x + y * y - 2 * z * z,
-                x * x + z * z - 2 * y * y,
-                2 * x * y,
-                2 * x * z,
-                2 * y * z,
-                2 * x,
-                2 * y,
-                2 * z,
-                1 - 0 * x])
-    d2 = np.array(x * x + y * y + z * z).T # rhs for LLSQ
-    M = D.dot(D.T)
-    u = np.linalg.solve(M + 1e-9*np.eye(M.shape[0]), D.dot(d2))
-    a = np.array([u[0] + 1 * u[1] - 1])
-    b = np.array([u[0] - 2 * u[1] - 1])
-    c = np.array([u[1] - 2 * u[0] - 1])
-    v = np.concatenate([a, b, c, u[2:]], axis=0).flatten()
-    A = np.array([[v[0], v[3], v[4], v[6]],
-                [v[3], v[1], v[5], v[7]],
-                [v[4], v[5], v[2], v[8]],
-                [v[6], v[7], v[8], v[9]]])
+    Returns:
+        center (3,)
+        evecs  (3,3) columns are principal axes
+        radii  (3,)
+        v      (10,)
+    """
+    X = np.asarray(X, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 3:
+        raise ValueError("X must be (N,3)")
 
-    center = np.linalg.solve(- A[:3, :3], v[6:9])
+    x, y, z = X[:, 0], X[:, 1], X[:, 2]
 
-    translation_matrix = np.eye(4)
-    translation_matrix[:3, 3] = center
+    # Solve D @ v ≈ 1 (unconstrained; overall scale is arbitrary)
+    D = np.column_stack([
+        x * x, y * y, z * z,
+        2 * x * y, 2 * x * z, 2 * y * z,
+        2 * x, 2 * y, 2 * z,
+        np.ones_like(x),
+    ])
+    rhs = np.ones((X.shape[0],), dtype=float)
+    v, *_ = np.linalg.lstsq(D, rhs, rcond=None)
 
-    R = translation_matrix.dot(A).dot(translation_matrix.T)
+    # Build symmetric quadric matrix A (4x4)
+    A = np.array([
+        [v[0], v[3], v[4], v[6]],
+        [v[3], v[1], v[5], v[7]],
+        [v[4], v[5], v[2], v[8]],
+        [v[6], v[7], v[8], v[9]],
+    ], dtype=float)
 
-    S = R[:3, :3] / -R[3, 3]
-    S = 0.5*(S + S.T)
-    evals, evecs = np.linalg.eigh(S)  # evecs columns are eigenvectors
-    evecs = evecs.T
+    Q = A[:3, :3]
+    b = A[:3, 3]
 
-    radii = np.sqrt(1.0 / np.abs(evals))
+    # Q must be invertible to get a finite center
+    if not np.all(np.isfinite(Q)) or np.linalg.cond(Q) > 1e12:
+        raise ValueError("Degenerate quadric: Q ill-conditioned (insufficient 3D excitation).")
 
+    center = -np.linalg.solve(Q, b)
+
+    # Normalize using data: enforce (x-center)^T Qn (x-center) ≈ 1
+    U = X - center
+    s = np.einsum("ni,ij,nj->n", U, Q, U)
+
+    # Overall quadric scale is arbitrary; s can be tiny — that's OK.
+    # Use robust scale and handle sign.
+    s0 = float(np.median(s))
+    if not np.isfinite(s0) or abs(s0) < 1e-30:
+        # fallback: use median absolute value
+        s0 = float(np.median(np.abs(s)))
+        if not np.isfinite(s0) or s0 < 1e-30:
+            raise ValueError("Degenerate fit: quadratic form is numerically zero.")
+
+    # Make scale positive (ellipsoid wants positive definite Qn)
+    alpha = 1.0 / s0
+    Qn = Q * alpha
+    Qn = 0.5 * (Qn + Qn.T)
+
+    evals, evecs = np.linalg.eigh(Qn)
+
+    # For ellipsoid, all eigenvalues must be > 0
+    if np.any(evals <= 1e-12):
+        # Sometimes sign is flipped; try flipping once
+        Qn2 = -Qn
+        evals2, evecs2 = np.linalg.eigh(Qn2)
+        if np.any(evals2 <= 1e-12):
+            raise ValueError("Not an ellipsoid (non-positive eigenvalues). Likely degenerate / insufficient excitation.")
+        evals, evecs = evals2, evecs2
+
+    radii = 1.0 / np.sqrt(evals)
     return center, evecs, radii, v
 
-"""
-def ellipsoid_fit(X):
-    x = X[:, 0]
-    y = X[:, 1]
-    z = X[:, 2]
-    D = np.array([x * x + y * y - 2 * z * z,
-                x * x + z * z - 2 * y * y,
-                2 * x * y,
-                2 * x * z,
-                2 * y * z,
-                2 * x,
-                2 * y,
-                2 * z,
-                1 - 0 * x])
-    d2 = np.array(x * x + y * y + z * z).T # rhs for LLSQ
-    M = D.dot(D.T)
-    u = np.linalg.solve(M + 1e-9*np.eye(M.shape[0]), D.dot(d2))
-    a = np.array([u[0] + 1 * u[1] - 1])
-    b = np.array([u[0] - 2 * u[1] - 1])
-    c = np.array([u[1] - 2 * u[0] - 1])
-    v = np.concatenate([a, b, c, u[2:]], axis=0).flatten()
-    A = np.array([[v[0], v[3], v[4], v[6]],
-                [v[3], v[1], v[5], v[7]],
-                [v[4], v[5], v[2], v[8]],
-                [v[6], v[7], v[8], v[9]]])
-
-    center = np.linalg.solve(- A[:3, :3], v[6:9])
-
-    translation_matrix = np.eye(4)
-    translation_matrix[:3, 3] = center
-
-    R = translation_matrix.dot(A).dot(translation_matrix.T)
-
-    S = R[:3, :3] / -R[3, 3]
-    S = 0.5*(S + S.T)
-    evals, evecs = np.linalg.eigh(S)
-    evecs = evecs.T
-
-    radii = np.sqrt(1.0 / np.abs(evals))
-
-    return center, evecs, radii, v
-"""
