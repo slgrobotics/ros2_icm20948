@@ -34,7 +34,7 @@ def generate_launch_description():
                 "startup_calib_seconds": 3.0,
                 "gyro_calib_max_std_dps": 2.0,    # warning threshold - if std dev is too high during calibration; default 1.0
                 "accel_calib_max_std_mps2": 0.35, # same for accel; default 0.35
-                "magnetometer_bias": [-12.578835747278259, -10.999672868949329, 23.65817527842366]  # use ../tests/icm_calibrate_mag.py to find these values
+                "magnetometer_bias": [-12.53908133, -11.08949955, 23.40434220]  # use ../tests/calibrate_mag.py to find these values
             }]
         ),
 
