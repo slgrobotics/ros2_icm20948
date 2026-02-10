@@ -631,23 +631,17 @@ class QwiicIcm20948(object):
 		
 		self.i2cMasterPassthrough(False) # Disable BYPASS_EN
 
-		"""
-		# Setup Master Clock speed as 345.6 kHz, and NSP (aka next slave read) to "stop between reads"
-		# Read the AGB3_REG_I2C_MST_CTRL, store in local variable "register"
+		# Setup Master Clock speed as 345.6 kHz, and NSR (aka next slave read) to "stop between reads"
 		self.setBank(3)
 		register = self._i2c.readByte(self.address, self.AGB3_REG_I2C_MST_CTRL)
-
 		register &= ~(0x0F) # clear bits for master clock [3:0]
 		#register |= (0x07) # set bits for master clock [3:0], 0x07 corresponds to 345.6 kHz, good for up to 400 kHz
 		register |= (0x0D) # 400 kHz
 		register |= (1<<4) # set bit [4] for NSR (next slave read). 0 = restart between reads. 1 = stop between reads.
-
-		# Write register
-		"""
-
-		self.setBank(3)
-		ok = self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, 0x0D)  # 400 kHz I2C bus speed
+		ok = self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_CTRL, register)  
 		time.sleep(chip_wait_time)
+
+		# configure the I2C Master's Output Data Rate (ODR) to 240 Hz (0x00 = 1200 Hz, 0x07 = 120 Hz...)
 		ok = ok and self._i2c.writeByte(self.address, self.AGB3_REG_I2C_MST_ODR_CONFIG, 0x04)
 		time.sleep(chip_wait_time)
 
